@@ -8,6 +8,7 @@ Machine learning in general and computer vision models in particular are vulnera
 |-----------------------|:------------------------------------------------------------------------------------:|:------------------------------------------------------------------------------------:|:-------------------------------------------------------------------------------------:|:-------------------------------------------------------------------------------------:|:-------------------------------------------------------------------------------------:|
 | Input Image (`t = ∞`) | ![Image](./paper_results/drawing_process_example/original_n02101388_21983/eps_0.png) | ![Image](./paper_results/drawing_process_example/original_n02101388_21983/eps_12.png) | ![Image](./paper_results/drawing_process_example/original_n02101388_21983/eps_24.png) | ![Image](./paper_results/drawing_process_example/original_n02101388_21983/eps_36.png) | ![Image](./paper_results/drawing_process_example/original_n02101388_21983/eps_51.png) |
 | Painting              |   ![Demo](./paper_results/drawing_process_example/demos_n02101388_21983/eps_0.gif)   |  ![Demo](./paper_results/drawing_process_example/demos_n02101388_21983/eps_12.gif)   |   ![Demo](./paper_results/drawing_process_example/demos_n02101388_21983/eps_24.gif)   |   ![Demo](./paper_results/drawing_process_example/demos_n02101388_21983/eps_36.gif)   |   ![Demo](./paper_results/drawing_process_example/demos_n02101388_21983/eps_51.gif)   |
+
 Figure 1. Painting vs adversarial perturbations generated using FGSM attack.
 
 
