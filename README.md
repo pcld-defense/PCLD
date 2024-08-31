@@ -40,14 +40,7 @@ It is highly recommended to save time and download the entire models folder from
 **(only if you followed Setup 2)**<br>
 
 This section allow you to quickly test our defense with the pre-trained models downloaded in Setup 2.
-#### 1. Attack the partial (only filtering) model Painter-CLassifier (PCL)
-With targeted-PGD<sub>10</sub> adaptive attack (𝜀 = {3/255, 9/255})
-```
-$ python --experiment_type attack_pcl --experiment_suff test_me_pgd10 --dataset subset_of_imagenet --batch_size 10 --output_every 50,100,200,300,400,500,600,700,950,1200,1700,2200,3200,4200,5200 --classifier_experiment train_clf_bp --attack pgd --attack_direction targeted --attack_nb_iter 10 --epsilons 3|9
-```
-It will create a folder (named: "attack_pcl_test_me_pgd10") inside the [results folder](resources%2Fresults).
-
-#### 2. Attack the entire (filtering + adversarial training) model Painter-CLassifier-Decisioner (PCLD) 
+#### Attack the entire (filtering + adversarial training) model Painter-CLassifier-Decisioner (PCLD) 
 With targeted-PGD<sub>10</sub> adaptive attack (𝜀 = {3/255, 9/255})
 ```
 $ python --experiment_type attack_pcld --experiment_suff test_me_pgd10 --dataset subset_of_imagenet --batch_size 10 --output_every 50,100,200,300,400,500,600,700,950,1200,1700,2200,3200,4200,5200 --classifier_experiment train_clf_bp --decisioner_experiment train_decisioner_conv_fgsm --attack pgd --attack_direction targeted --attack_nb_iter 10 --epsilons 3|9
