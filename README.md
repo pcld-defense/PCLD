@@ -2,7 +2,7 @@
 Anonymous Author 1, Anonymous Author 2
 
 ## The Painting Affect
-###### Painting vs adversarial perturbations generated using PGD<sub>10</sub> attack.<br>The higher the 𝜀, the greather the perturbations become perceptible.
+###### Painting vs adversarial perturbations generated using PGD<sub>10</sub> attack.<br>The greater the 𝜀, the earlier the perturbations become perceptible.
 |               |                                        𝜀 = 0                                        |                                       𝜀 = 12                                        |                                        𝜀 = 24                                        |                                        𝜀 = 36                                        |                                        𝜀 = 51                                        |
 |---------------|:------------------------------------------------------------------------------------:|:------------------------------------------------------------------------------------:|:-------------------------------------------------------------------------------------:|:-------------------------------------------------------------------------------------:|:-------------------------------------------------------------------------------------:|
 | Input <br>`∞` | ![Image](./examples/drawing_process_example/original_n02101388_21983/eps_0.png) | ![Image](./examples/drawing_process_example/original_n02101388_21983/eps_12.png) | ![Image](./examples/drawing_process_example/original_n02101388_21983/eps_24.png) | ![Image](./examples/drawing_process_example/original_n02101388_21983/eps_36.png) | ![Image](./examples/drawing_process_example/original_n02101388_21983/eps_51.png) |
