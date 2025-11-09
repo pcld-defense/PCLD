@@ -1,4 +1,4 @@
-# What You Paint Is What You Get
+# Adaptive Visual Rendering for Robust Classification
 Anonymous Author 1, Anonymous Author 2
 
 ## The Painting Affect
