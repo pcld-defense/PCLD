@@ -1,4 +1,4 @@
-# Adaptive Visual Rendering for Robust Classification
+# What You Paint Is What You Get
 Anonymous Author 1, Anonymous Author 2
 
 ## The Painting Affect
@@ -9,37 +9,32 @@ Anonymous Author 1, Anonymous Author 2
 | Paint         |   ![Demo](./examples/drawing_process_example/demos_n02101388_21983/eps_0.gif)   |  ![Demo](./examples/drawing_process_example/demos_n02101388_21983/eps_12.gif)   |   ![Demo](./examples/drawing_process_example/demos_n02101388_21983/eps_24.gif)   |   ![Demo](./examples/drawing_process_example/demos_n02101388_21983/eps_36.gif)   |   ![Demo](./examples/drawing_process_example/demos_n02101388_21983/eps_51.gif)   |
 
 ## Abstract
-Extensive progress has been made in improving adversarial defense techniques, yet computer vision models continue to be vulnerable to adversarial manipulations. Adversarial training and input transformations are two of the most prominent methods for building adversary-resilient models. However, adversarial training faces challenges generalizing to unseen attacks and adressing the trade-off between accuracy and robustness, while input transformations are ineffective against large perturbations. In light of these challenges, we explore an alternative approach: painting algorithms. These algorithms capture the core visual elements of an image, making them effective filters of adversarial perturbations. We observe a correlation between the granularity of the painting process and the perturbation magnitude required to induce adversarial effects. This observation is used for adversarial training of a classifier that integrates classification probabilities from multiple painting steps. To evaluate our defense, we introduce a provable adaptive attack technique tailored for defenses that utilize iterative algorithms, particularly in systems where input transformations are central to security. Our defense approach outperforms existing state-of-the-art defenses, addresses the trade-off between accuracy and robustness, generalize to unseen attacks and extending the robustness for substantial perturbations, in high-resolution settings across various white-box attack methods under $\ell_\infty$-norm.
+Despite advances in adversarial training and input transforms, deep networks remain vulnerable to adversarial attacks. We study a defense that couples stroke-based rendering with a decision module trained on classifier confidence trajectories. Our Painter–Classifier–Decisioner (PCLD) framework renders intermediate canvases at increasing stroke counts and lets a lightweight decisioner select the final prediction based on the evolving confidences. We evaluate PCLD under adaptive white-box conditions (BPDA+EOT) and AutoAttack, and run standard sanity checks to avoid gradient-obfuscation pitfalls. In a 7-class ImageNet subset, PCLD improves robustness at moderate to large $\ell_\infty$ budgets while preserving benign accuracy, and shows a transfer from FGSM-based decisioner training to stronger attacks in our setting. We also discuss runtime–accuracy trade-offs and an early-exit design that reduces average latency.
 
 
 ## Install requirements
 ```
 $ pip install -r requirements.txt
 ```
-(You may consider creating venv and install requirements inside)
 
 ## Examples
 Before running the project, we are highly recommend to experience in [painting a single image](examples%2FPainting.ipynb) and [attack PCLD with a single image](examples%2FPCLD%20BPDA%20Attack%20with%20Single%20Image.ipynb).
 
 ## Setup
-### Setup 1: Download the dataset
-You can use the exact dataset described in the paper by running the [notebook](resources%2FGet%20Subset%20of%20ImageNet%20we%20Used%20in%20Paper.ipynb). This will create a new dataset in the [subset_of_imagenet](resources%2Fdatasets%2Fsubset_of_imagenet) folder and a small sample in the [subset_of_imagenet_sample](resources%2Fdatasets%2Fsubset_of_imagenet_sample) folder.
-####
-
-### Setup 2 (recommended): Download the pretrained models
+### Setup 1 (recommended): Download the pretrained models
 It is highly recommended to save time and download the entire models folder from [drive](https://drive.google.com/drive/folders/1wydFD78BNzktSY162IYZ5AJMrPE2O43D?usp=drive_link) and save it inside [resources](resources).
 ####
 
-### Setup 3: Download the pretrained painter and surrogate
-**Only if you skipped Setup 2!**
+### Setup 2: Download the pretrained painter and surrogate
+**Only if you skipped Setup 1!**
 <br>Download the [painter_actor, painter_renderer and train_surrogate_painter folders](https://drive.google.com/drive/folders/1fc92MaQkY5ZzTykcn-TPmnXRb1uEVijI?usp=drive_link) and save it inside resources/models.
 
 
 
 ## Quick Start 
-**(only if you followed Setup 2)**<br>
+**(only if you followed Setup 1)**<br>
 
-This section allow you to quickly test our defense with the pre-trained models downloaded in Setup 2.
+This section allow you to quickly test our defense with the pre-trained models downloaded in Setup 1.
 #### Attack the entire (filtering + adversarial training) model Painter-CLassifier-Decisioner (PCLD) 
 With targeted-PGD<sub>10</sub> adaptive attack (𝜀 = {3/255, 9/255})
 ```
@@ -52,7 +47,7 @@ It will create a folder (named: "attack_pcld_test_me_pgd10") inside the [results
 ## Training the Models
 **(in case you wish to train it from scratch)**<br>
 This section required five steps.
-We save you the training of the painter-surrogate models, those models and the painter already exist if you followed the instructions in Setup 3.
+We save you the training of the painter-surrogate models, those models and the painter already exist if you followed the instructions in Setup 2.
 
 #### 1. Paint the benign dataset - generate _B<sub>p_
 We will save paints at steps 50,100,200,300,400,500,600,700,950,1200,1700,2200,3200,4200,5200 from each image.
