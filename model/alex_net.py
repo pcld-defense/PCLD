@@ -1,7 +1,6 @@
 import torch.nn as nn
 import torch
 
-
 torch.manual_seed(42)
 
 
@@ -161,7 +160,6 @@ class AlexNetSuperShallowThin(nn.Module):
         x = torch.flatten(x, 1)
         x = self.classifier(x)
         return x
-
 
 
 def get_net(net_name):

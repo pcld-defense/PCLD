@@ -1,3 +1,7 @@
+"""
+Download model files from google drive
+"""
+
 from util.consts import NUM_OF_HYPHENS
 import inspect
 import os

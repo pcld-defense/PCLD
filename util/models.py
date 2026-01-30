@@ -13,11 +13,32 @@ from util.consts import RESOURCES_MODELS_DIR
 from util.evaluations import deep_evaluation_training, evaluate_print, evaluate_print_decisioner
 
 
-def load_model(model, path, device):
+def load_model(model: torch.nn.Module, path: str, device: str) -> torch.nn.Module:
+    """
+    Loads a PyTorch model state dictionary and maps it to a specific device.
+
+    This function handles the removal of the 'module.' prefix from state dictionary
+    keys, which often occurs when a model was previously saved using
+    `torch.nn.DataParallel`. It then loads the cleaned state into the model
+    and moves the model to the target device.
+
+    Args:
+        model: The model architecture to load the weights into.
+        path: The file path to the saved `.pth` or `.pt` checkpoint.
+        device: The target device to load the model onto (e.g., 'cpu', 'cuda').
+
+    Returns:
+         The model instance with loaded weights, moved to the specified device.
+
+    Example:
+        >>> model = MyCNN()
+        >>> model = load_model(model, "checkpoints/model_v1.pth", "cuda")
+    """
     state_dict = torch.load(path, map_location=torch.device(device))
     new_state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
     model.load_state_dict(new_state_dict)
     model.to(device)
+
     return model
 
 

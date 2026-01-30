@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 torch.manual_seed(42)
 
 
@@ -11,19 +12,21 @@ def conv3x3(in_planes, out_planes, stride=1):
     return (nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
                       padding=1, bias=False))
 
+
 def cfg(depth):
     depth_lst = [18, 34, 50, 101, 152]
     assert (depth in depth_lst), \
         "Error : Resnet depth should be either 18, 34, 50, 101, 152"
     cf_dict = {
-        '18': (BasicBlock, [2,2,2,2]),
-        '34': (BasicBlock, [3,4,6,3]),
-        '50': (Bottleneck, [3,4,6,3]),
-        '101':(Bottleneck, [3,4,23,3]),
-        '152':(Bottleneck, [3,8,36,3]),
+        '18': (BasicBlock, [2, 2, 2, 2]),
+        '34': (BasicBlock, [3, 4, 6, 3]),
+        '50': (Bottleneck, [3, 4, 6, 3]),
+        '101': (Bottleneck, [3, 4, 23, 3]),
+        '152': (Bottleneck, [3, 8, 36, 3]),
     }
 
     return cf_dict[str(depth)]
+
 
 class BasicBlock(nn.Module):
     expansion = 1
@@ -38,9 +41,9 @@ class BasicBlock(nn.Module):
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
             self.shortcut = nn.Sequential(
-                (nn.Conv2d(in_planes, self.expansion*planes, kernel_size=1,
+                (nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1,
                            stride=stride, bias=False)),
-                nn.BatchNorm2d(self.expansion*planes)
+                nn.BatchNorm2d(self.expansion * planes)
             )
 
     def forward(self, x):
@@ -51,6 +54,7 @@ class BasicBlock(nn.Module):
 
         return out
 
+
 class Bottleneck(nn.Module):
     expansion = 4
 
@@ -59,16 +63,16 @@ class Bottleneck(nn.Module):
         self.conv1 = (nn.Conv2d(in_planes, planes, kernel_size=1, bias=False))
         self.conv2 = (nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
                                 padding=1, bias=False))
-        self.conv3 = (nn.Conv2d(planes, self.expansion*planes, kernel_size=1,
+        self.conv3 = (nn.Conv2d(planes, self.expansion * planes, kernel_size=1,
                                 bias=False))
         self.bn1 = nn.BatchNorm2d(planes)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.bn3 = nn.BatchNorm2d(self.expansion*planes)
+        self.bn3 = nn.BatchNorm2d(self.expansion * planes)
 
         self.shortcut = nn.Sequential()
-        if stride != 1 or in_planes != self.expansion*planes:
+        if stride != 1 or in_planes != self.expansion * planes:
             self.shortcut = nn.Sequential(
-                (nn.Conv2d(in_planes, self.expansion*planes, kernel_size=1,
+                (nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1,
                            stride=stride, bias=False)),
             )
 
@@ -81,8 +85,9 @@ class Bottleneck(nn.Module):
 
         return out
 
+
 class ActorResNet(nn.Module):
-    def __init__(self, num_inputs, depth, num_outputs):
+    def __init__(self, num_inputs: int, depth: int, num_outputs: int):
         super(ActorResNet, self).__init__()
         self.in_planes = 64
 
@@ -97,7 +102,7 @@ class ActorResNet(nn.Module):
         self.fc = nn.Linear(512 * block.expansion, num_outputs)
 
     def _make_layer(self, block, planes, num_blocks, stride):
-        strides = [stride] + [1]*(num_blocks-1)
+        strides = [stride] + [1] * (num_blocks - 1)
         layers = []
 
         for stride in strides:
@@ -150,7 +155,5 @@ class RendererFCN(nn.Module):
         x = F.relu(self.conv5(x))
         x = self.pixel_shuffle(self.conv6(x))
         x = torch.sigmoid(x)
+
         return 1 - x.view(-1, 128, 128)
-
-
-

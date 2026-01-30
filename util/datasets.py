@@ -1,18 +1,46 @@
 import os
+import shutil
+import re
+
 from PIL import Image
 import numpy as np
 import pandas as pd
-
+from tqdm import tqdm
 import torch
 from torchvision import datasets, transforms
 
 from util.consts import RESOURCES_DATASETS_DIR
 
 
+def load_image(path: str) -> np.ndarray:
+    """
+    Loads, resizes, and normalizes an image from a given path.
+
+    The function opens an image, scales it to a fixed 300x300 resolution,
+    and converts the pixel values from an integer range [0, 255] to a
+    floating-point range [0.0, 1.0].
+
+    Args:
+        path: The file path to the image to be loaded.
+
+    Returns:
+        A 3D float32 array representing the processed image with shape (300, 300, channels).
+
+    """
+    img = Image.open(path)
+    img = img.resize((300, 300))
+    img = np.asarray(img)
+    img = img / 255.0
+    img = img.astype(np.float32)
+
+    return img
+
+
 class ImageFolderWithPaths(datasets.ImageFolder):
     """Custom dataset that includes image file paths. Extends
     torchvision.datasets.ImageFolder
     """
+
     # override the __getitem__ method. this is the method that dataloader calls
     def __getitem__(self, index: int):
         # this is what ImageFolder normally returns
@@ -56,17 +84,8 @@ def transform_dataset(augmentations: bool, to_integers: bool = True):
     return transforms.Compose(composition)
 
 
-def load_image(path):
-    img = Image.open(path)
-    img = img.resize((300, 300))
-    img = np.asarray(img)
-    img = img / 255.0
-    img = img.astype(np.float32)
-    return img
-
-
 def create_ds_loader(path: str, transform: transforms.Compose,
-                     batch_size: int, shuffle: bool = True, num_workers: int = os.cpu_count()-1):
+                     batch_size: int, shuffle: bool = True, num_workers: int = os.cpu_count() - 1):
     ds = ImageFolderWithPaths(path, transform=transform)
     loader = torch.utils.data.DataLoader(ds, batch_size=batch_size, shuffle=shuffle,
                                          num_workers=num_workers, pin_memory=True)
@@ -105,7 +124,7 @@ def get_loaders(dataset, train_transform, test_transform, batch_size):
     return loaders
 
 
-def concat_to_one_decisioner_dataset(ds_local_dir):
+def concat_to_one_decisioner_dataset(ds_local_dir: str) -> pd.DataFrame:
     df_dataset = pd.DataFrame()
     for file_name in os.listdir(ds_local_dir):
         file_path = os.path.join(ds_local_dir, file_name)
@@ -113,3 +132,62 @@ def concat_to_one_decisioner_dataset(ds_local_dir):
         df = df[df['attacked_model'] == 'pcl']  # only those records are relevant
         df_dataset = pd.concat([df_dataset, df], axis=0, ignore_index=True)
     return df_dataset
+
+
+def prepare_imagent_val(sh_path: str, output_path: str) -> None:
+    """
+    Parses valprep.sh (imagenet script to move images into the appropriate folders)
+     and executes file movements with a progress bar.
+
+    Args:
+        sh_path: Path to the original valprep.sh file.
+        output_path: Path to the directory output.
+    """
+    if not os.path.exists(sh_path):
+        print(f"Error: {sh_path} not found.")
+        return
+
+    # Read the script into memory
+    with open(sh_path, 'r') as f:
+        lines = f.readlines()
+
+    # Regex patterns to extract folder creation and move commands
+    mkdir_re = re.compile(r'mkdir -p\s+([\w\d]+)')
+    mv_re = re.compile(r'mv\s+([\w\d\.]+)\s+([\w\d]+)/')
+
+    # 1. Handle Directory Creation
+    directories = [mkdir_re.search(line).group(1) for line in lines if mkdir_re.search(line)]
+    unique_dirs = sorted(list(set(directories)))
+
+    print(f"Checking/Creating {len(unique_dirs)} directories...")
+    for d in tqdm(unique_dirs, desc="Creating Folders", unit="folder"):
+        os.makedirs(os.path.join(output_path, d), exist_ok=True)
+
+    # 2. Handle File Movements
+    # Pre-parse the move commands to know how many there are
+    move_commands = []
+    for line in lines:
+        match = mv_re.search(line)
+        if match:
+            move_commands.append(match.groups())
+
+    print(f"Moving {len(move_commands)} files...")
+    moved_count = 0
+
+    # tqdm progress bar for the file moves
+    for src_name, dest_folder in tqdm(move_commands, desc="Organizing Images", unit="file"):
+        current_file_path = os.path.join(output_path, src_name)
+        target_file_path = os.path.join(output_path, dest_folder, src_name)
+
+        if os.path.exists(current_file_path):
+            try:
+                # shutil.move is efficient for same-drive renames
+                shutil.move(current_file_path, target_file_path)
+                moved_count += 1
+            except Exception as e:
+                # Quietly handle errors like permission issues
+                print(e)
+                pass
+
+    print(f"\nTask Complete!")
+    print(f"Total files moved: {moved_count}")

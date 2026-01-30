@@ -1,6 +1,7 @@
 # base #
 numpy==1.24.2
 pandas==1.5.3
+tqdm
 
 # torch #
 torch==1.13.1
@@ -22,3 +23,7 @@ opencv-python==4.10.0.82
 rlPyCairo
 reportlab
 svglib
+
+# robustbench + auto attack
+robustbench==1.1.1
+git+https://github.com/fra31/auto-attack

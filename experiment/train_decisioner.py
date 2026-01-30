@@ -1,5 +1,4 @@
 import os
-import pandas as pd
 import torch
 
 from util.consts import NUM_OF_HYPHENS, IMAGENET_7_LABELS, RESOURCES_RESULTS_DIR, \

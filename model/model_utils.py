@@ -1,23 +1,21 @@
 import os
 import re
+
 import torch
 import torch.nn as nn
 from torchvision import models
+
+from util.models import load_model
 from model.painter_surrogate import PainterSurrogate_
+
 torch.manual_seed(42)
-
-
-def load_model(model, path, device):
-    state_dict = torch.load(path, map_location=torch.device(device))
-    new_state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
-    model.load_state_dict(new_state_dict)
-    return model
 
 
 def load_painter_surrogate(models_folder, device, output_every=None):
     output_every_names = [f'model_t{oe}.pth' for oe in output_every]
     models_names = os.listdir(models_folder)
     pattern = re.compile(r'model_t(\d+)\.pth')
+
     def sort_key(filename):
         match = pattern.match(filename)
         if match:

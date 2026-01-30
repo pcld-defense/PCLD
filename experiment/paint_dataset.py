@@ -4,7 +4,7 @@ from torchvision.utils import save_image
 
 from util.consts import RESOURCES_DATASETS_DIR, NUM_OF_HYPHENS, IMAGENET_7_LABELS
 from model.painter_utils import load_painter, paint_images
-from util.datasets import create_ds_loader, transform_dataset, generator_loader_train_full, get_loaders
+from util.datasets import transform_dataset, generator_loader_train_full, get_loaders
 
 
 def paint_dataset(actor, renderer, loader, loader_name, device, output_every, ds_local_dir_new):
