@@ -1,0 +1,6 @@
+/data
+/resources/models
+/notebooks/data
+/notebooks/models
+*.xml
+*.iml
