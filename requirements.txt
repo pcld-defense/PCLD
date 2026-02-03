@@ -2,6 +2,7 @@
 numpy==1.24.2
 pandas==1.5.3
 tqdm
+python-dotenv
 
 # torch #
 torch==1.13.1
@@ -15,15 +16,15 @@ adversarial-robustness-toolbox==1.15.0
 ipython==7.34.0
 notebook==6.5.7
 
-# pre-trained models from drive #
+# pre-trained models or datasets from drive or huggingface#
 pydrive==1.3.1
+datasets
 
 # images
 opencv-python==4.10.0.82
-rlPyCairo
-reportlab
-svglib
 
-# robustbench + auto attack
 robustbench==1.1.1
-git+https://github.com/fra31/auto-attack
+git+https://github.com/fra31/auto-attack # autoattack
+git+https://github.com/nottombrown/imagenet_stubs # imagenet_stubs
+
+

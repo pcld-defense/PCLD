@@ -4,3 +4,4 @@
 /notebooks/models
 *.xml
 *.iml
+.env
