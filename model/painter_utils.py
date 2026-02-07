@@ -91,6 +91,7 @@ def prepare_output(canvas, to_shape, divide, width, is_divide=False):
 # --- 2. Main Painting Logic ---
 
 def paint(img, output_every, device, actor, renderer):
+    max_step = PainterConsts.MAX_STEP
     output_width = img.shape[1]
     canvas_cnt = PainterConsts.DIVIDE * PainterConsts.DIVIDE
 
@@ -124,15 +125,15 @@ def paint(img, output_every, device, actor, renderer):
     canvas = torch.zeros([1, 3, PainterConsts.WIDTH, PainterConsts.WIDTH], device=device)
 
     if PainterConsts.DIVIDE > 1:
-        PainterConsts.MAX_STEP //= 2
+        max_step //= 2
 
     img_idx = 0
     output_canvases = []
 
     with torch.no_grad():
         # PHASE 1: Regular (Global)
-        for i in range(PainterConsts.MAX_STEP):
-            stepnum = T * (i / PainterConsts.MAX_STEP)
+        for i in range(max_step):
+            stepnum = T * (i / max_step)
             actor_input = torch.cat([canvas, img_low, stepnum, coord], 1)
             actions = actor(actor_input)
             canvas, res = decode(actions, canvas, renderer, PainterConsts.WIDTH)
@@ -155,8 +156,8 @@ def paint(img, output_every, device, actor, renderer):
             coord_p = coord.expand(canvas_cnt, -1, -1, -1)
             T_p = T.expand(canvas_cnt, -1, -1, -1)
 
-            for i in range(PainterConsts.MAX_STEP):
-                stepnum = T_p * (i / PainterConsts.MAX_STEP)
+            for i in range(max_step):
+                stepnum = T_p * (i / max_step)
                 actor_input = torch.cat([canvas, patch_img, stepnum, coord_p], 1)
                 actions = actor(actor_input)
                 canvas, res = decode(actions, canvas, renderer, PainterConsts.WIDTH)
@@ -182,9 +183,9 @@ def paint_images(x, output_every, device, actor, renderer, add_original=True):
     x_out = []
     # x: (Batch, 3, H, W)
     for i in range(x.shape[0]):
-        canvases = paint(x[i], output_every, device, actor, renderer)
+        canvases = paint(x[i], output_every, device, actor, renderer).to(device)
         if add_original:
-            orig = x[i:i + 1].unsqueeze(1)  # (1, 1, 3, H, W)
+            orig = x[i:i + 1].unsqueeze(1).to(device) # (1, 1, 3, H, W)
             canvases = torch.cat([canvases, orig], dim=1)
         x_out.append(canvases)
     return torch.cat(x_out, dim=0)

@@ -4,8 +4,8 @@ import time
 from tqdm import tqdm
 from torchvision.utils import save_image
 
-from model.painter_utils import load_painter
-from util.consts import RESOURCES_DATASETS_DIR, NUM_OF_HYPHENS, IMAGENET_2012_LABELS, ACTOR_PATH, RENDERER_PATH
+from model.painter_utils import load_painter, paint_images
+from util.consts import RESOURCES_DATASETS_DIR, NUM_OF_HYPHENS, ACTOR_PATH, RENDERER_PATH
 from util.datasets import transform_dataset, generator_loader_train_full, get_loaders
 
 
@@ -37,7 +37,7 @@ def paint_dataset(actor, renderer, loaders, loader_name, device, output_every, d
         painting_avg_time += (end_time - start_time) / len(img_names)
         for img_i in range(canvases.shape[0]):
             img_name = img_names[img_i]
-            img_label = idx_to_class[y[img_i]]
+            img_label = idx_to_class[y[img_i].detach().cpu().item()]
             img_dir = os.path.join(ds_local_dir_new, loader_name, img_label)
             for c_i in range(canvases.shape[1]):
                 img = canvases[img_i, c_i]
