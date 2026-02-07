@@ -2,15 +2,15 @@ import os
 import pandas as pd
 
 from model.pretrained_net import get_net_and_optim
-from util.consts import RESOURCES_DATASETS_DIR, NUM_OF_HYPHENS, IMAGENET_2012_LABELS, RESOURCES_RESULTS_DIR
+from util.consts import RESOURCES_DATASETS_DIR, RESOURCES_RESULTS_DIR
 from util.datasets import transform_dataset, generator_loader_train_full, get_loaders
 from util.models import process_epoch_clf, get_best_epoch
 
 
 def main_train_classifier(args, device):
     # Fail fast
-    dataset, experiment_name, batch_size, max_epochs, find_best_epoch = \
-        args.dataset, args.experiment_name, args.batch_size, args.max_epochs, args.find_best_epoch
+    dataset, splits, experiment_name, batch_size, max_epochs, find_best_epoch = \
+        args.dataset, args.split, args.experiment_name, args.batch_size, args.max_epochs, args.find_best_epoch
 
     # =================== Load the dataset =================== #
     n_classes = len(IMAGENET_2012_LABELS.keys())
@@ -85,7 +85,7 @@ def main_train_classifier(args, device):
 
     print(f'\nrun train_full-test phase with {best_epoch} epochs\n')
     net, criterion, optimizer, scheduler = get_net_and_optim(n_classes, device, 0.01)
-    for epoch in range(0, best_epoch+1):
+    for epoch in range(0, best_epoch + 1):
         print(f'train_full_test: start epoch {epoch}')
         deep_evaluate = epoch == best_epoch
         # Train Full
@@ -96,7 +96,7 @@ def main_train_classifier(args, device):
                                                         loader=generator_loader_train_full(loaders['train'][1],
                                                                                            loaders['val_to_concat'][1]),
                                                         loader_name='train_full_for_train_full_test',
-                                                        n_batches=len(loaders['train'][1])+len(loaders['val'][1]),
+                                                        n_batches=len(loaders['train'][1]) + len(loaders['val'][1]),
                                                         criterion=criterion,
                                                         optimizer=optimizer,
                                                         results_df=results_df,
@@ -136,5 +136,3 @@ def main_train_classifier(args, device):
     results_deep_df.to_csv(results_deep_local_path, index=False)
 
     print(f'Finished training the classifier!')
-
-

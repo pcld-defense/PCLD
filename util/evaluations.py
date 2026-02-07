@@ -4,8 +4,8 @@ import torch
 
 
 def evaluate_print_decisioner(class_correct, class_total, loss, epoch,
-                   dataset_size, n_classes, classes,
-                   epsilon_stats):
+                              dataset_size, n_classes, classes,
+                              epsilon_stats):
     avg_loss = loss / dataset_size
     correct_sum = np.sum(class_correct)
     sample_size = np.sum(class_total)
@@ -16,16 +16,15 @@ def evaluate_print_decisioner(class_correct, class_total, loss, epoch,
         'avg_loss': [avg_loss],
         'accuracy': [accuracy]
     }
-    print(f'Epoch %d, loss: %.8f Accuracy (Overall): %2d%% (%2d/%2d)' %(epoch, avg_loss, 100. * accuracy,
-                                                                        correct_sum, sample_size))
+    print(f'Epoch %d, loss: %.8f Accuracy (Overall): %2d%% (%2d/%2d)' % (epoch, avg_loss, 100. * accuracy,
+                                                                         correct_sum, sample_size))
     print(f'Accuracy by epsilon:')
     for eps in epsilon_stats.keys():
         eps_correct = epsilon_stats[eps][0]
         eps_count = epsilon_stats[eps][1]
-        acc = eps_correct/eps_count
+        acc = eps_correct / eps_count
         # epsilon_stats[eps][0] = acc
         print(f'eps {eps}: {acc} ({eps_correct} / {eps_count})')
-
 
 
 def evaluate_print(experiment, res_df, class_correct, class_total, loss, epoch,
@@ -43,8 +42,9 @@ def evaluate_print(experiment, res_df, class_correct, class_total, loss, epoch,
         'avg_loss': [avg_loss],
         'accuracy': [accuracy]
     }
-    print(f'Epoch %d, loss: %.8f \t{loader_name} Accuracy (Overall): %2d%% (%2d/%2d)' %(epoch, avg_loss, 100. * accuracy,
-                                                                                        correct_sum, sample_size))
+    print(
+        f'Epoch %d, loss: %.8f \t{loader_name} Accuracy (Overall): %2d%% (%2d/%2d)' % (epoch, avg_loss, 100. * accuracy,
+                                                                                       correct_sum, sample_size))
     for i in range(n_classes):
         class_correct_i = np.sum(class_correct[i])
         class_size_i = np.sum(class_total[i])
@@ -100,6 +100,7 @@ def deep_evaluation_adv_training(experiment, res_deep_df, epoch, ds_name, ds_typ
                             axis=0,
                             ignore_index=True)
     return res_deep_df
+
 
 def deep_evaluation_training(experiment, res_deep_df, epoch, ds_name, ds_type, filter_level,
                              n_classes, classes, images_paths, outputs, labels,
@@ -168,7 +169,6 @@ def deep_evaluation_defense(experiment, res_deep_df, epoch_surrogate, epoch_vict
                             outputs_victim,
                             labels,
                             criterion):
-
     res_deep_dict = {
         'experiment': [],
         'epoch_surrogate': [],
@@ -198,7 +198,7 @@ def deep_evaluation_defense(experiment, res_deep_df, epoch_surrogate, epoch_vict
     _, victim_pred_labels = torch.max(outputs_victim, 1)
     for i in range(len(images_paths)):
         surrogate_pred_label = surrogate_pred_labels[i].item()
-        victim_pred_label= victim_pred_labels[i].item()
+        victim_pred_label = victim_pred_labels[i].item()
 
         image_path = images_paths[i]
         image_name = image_path.split('/')[-1].split('.')[0]
@@ -374,12 +374,10 @@ def deep_evaluation_attack(experiment, attack, surrogate_name, victim_name, epsi
     return res_deep_df
 
 
-
 def deep_evaluation_attack_for_decisioner(experiment, attack, surrogate_name, epsilon,
                                           ds_name, classes, images_paths,
                                           outputs_surrogate_orig, outputs_surrogate_adv,
                                           labels, criterion, res_deep_df):
-
     res_deep_dict = {
         'experiment': [],
         'attack': [],
@@ -458,7 +456,6 @@ def deep_evaluation_attack_for_decisioner(experiment, attack, surrogate_name, ep
 def deep_evaluation_general(experiment, res_deep_df, dir,
                             ds_name, classes, images_paths,
                             outputs, labels, criterion):
-
     res_deep_dict = {
         'experiment': [],
         'dir': [],
