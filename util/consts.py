@@ -1,17 +1,35 @@
+import os
+
+from imagenet_stubs.imagenet_2012_labels import IMAGENET_2012_LABELS
+
 NUM_OF_HYPHENS = 50
-RESOURCES_DIR = 'resources'
-RESOURCES_DATASETS_DIR = RESOURCES_DIR + '/datasets'
+RESOURCES_DIR = r"/home/idanbib/PCLD/code/resources/"
+RESOURCES_DATASETS_DIR = r"/home/idanbib/PCLD/data/"
 RESOURCES_RESULTS_DIR = RESOURCES_DIR + '/results'
 RESOURCES_MODELS_DIR = RESOURCES_DIR + '/models'
+IMAGENET_SHAPE = 224
+
+ACTOR_PATH = os.path.join(RESOURCES_MODELS_DIR, 'painter_actor/actor.pkl')
+RENDERER_PATH = os.path.join(RESOURCES_MODELS_DIR, 'painter_renderer/renderer.pkl')
 
 
-IMAGENET_7_LABELS = {
-    0: 'butterfly',
-    1: 'cat',
-    2: 'chicken',
-    3: 'dog',
-    4: 'elephant',
-    5: 'spider',
-    6: 'squirrel'
-}
+class CIFAR10:
+    CIFAR10_MAPPING = {
+        0: 'airplane',
+        1: 'automobile',
+        2: 'bird',
+        3: 'cat',
+        4: 'deer',
+        5: 'dog',
+        6: 'frog',
+        7: 'horse',
+        8: 'ship',
+        9: 'truck'
+    }
+    CIFAR_SHAPE = 32
 
+
+class PainterConsts:
+    MAX_STEP = 80
+    WIDTH = 128
+    DIVIDE = 5
