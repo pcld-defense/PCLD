@@ -13,9 +13,11 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Parse the experiment arguments')
     parser.add_argument('--experiment_type', '-ext', type=str, required=True,
                         help='the type of the experiment to run')
-    parser.add_argument('--experiment_suff', '-exs', type=str, required=True, default='test',
+    parser.add_argument('--experiment_name', '-exn', type=str, required=True, default='test',
                         help='added name to the experiment')
     parser.add_argument('--dataset', '-dta', type=str, required=True, help='the main dataset')
+    parser.add_argument('--splits', '-sp', type=str, nargs='+', required=True,
+                        help='dataset type (e.g. train val test)')
     parser.add_argument('--batch_size', '-bsz', type=int, required=False, default=16, help='batch size')
     parser.add_argument('--output_every', '-oev', type=str, required=False,
                         default="50,100,200,300,400,500,600,700,950,1200,1700,2200,3200,4200,5200",
@@ -53,4 +55,3 @@ def parse_args():
     parsed.epsilons = str_to_int_list(parsed.epsilons, '|')
 
     return parsed
-

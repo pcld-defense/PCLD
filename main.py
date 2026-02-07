@@ -2,11 +2,11 @@ import os
 import warnings
 
 from util.consts import NUM_OF_HYPHENS
-from util.integrative import *
+from util.integrative import parse_args
 from experiment.experiment_navigator import apply_experiment
 import torch
-torch.manual_seed(42)
 
+torch.manual_seed(42)
 
 if __name__ == '__main__':
     print('Starting PCLD Service...')
@@ -20,8 +20,7 @@ if __name__ == '__main__':
     torch.device(device)
     print(f'device: {device}')
 
-    # ---------------------- Run experiment ---------------------- #
-    args.experiment_name = args.experiment_type + '_' + args.experiment_suff
+    # ---------------------- Run experiment ----------------------
     print('-' * NUM_OF_HYPHENS)
     print(f'Run {args.experiment_name}...')
     apply_experiment(args=args, device=device)
