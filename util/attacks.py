@@ -8,8 +8,9 @@ import torch.nn as nn
 import torch.optim as optim
 from cleverhans.torch.attacks.fast_gradient_method import fast_gradient_method
 from cleverhans.torch.attacks.projected_gradient_descent import projected_gradient_descent
-from art.attacks.evasion import CarliniLInfMethod, AutoAttack
-from art.estimators.classification import PyTorchClassifier
+# from art.attacks.evasion import CarliniLInfMethod#, AutoAttack
+# from art.estimators.classification import PyTorchClassifier
+from autoattack import AutoAttack
 
 
 def attack_batch(model, x, attack, epsilon, attack_nb_iter, targeted, y_classes_targeted,
@@ -29,7 +30,7 @@ def attack_batch(model, x, attack, epsilon, attack_nb_iter, targeted, y_classes_
         x_adv = projected_gradient_descent(model_fn=model,
                                            x=x,
                                            eps=epsilon,
-                                           eps_iter=epsilon/attack_nb_iter,
+                                           eps_iter=epsilon / attack_nb_iter,
                                            nb_iter=attack_nb_iter,
                                            norm=np.inf,
                                            y=y_classes_targeted,
@@ -109,9 +110,10 @@ def attacker(experiment, dataset, attack, adaptive_model, naive_model, run_naive
         img_names = [p.split('/')[-1].split('.')[0] for p in paths]
         y_classes = [yi.item() for yi in y]
         # generate targeted labels for adv attack
-        y_classes_targeted = [int((yi.item()+random.randint(1, targeted_jumps_allowed)) % len(classes)) for yi in y]
+        y_classes_targeted = [int((yi.item() + random.randint(1, targeted_jumps_allowed)) % len(classes)) for yi in y]
         # y_classes_targeted = [int((yi.item()+ 1) % len(classes)) for yi in y]
-        y_classes_targeted_adaptive = y_classes_targeted_naive = torch.Tensor(y_classes_targeted).to(torch.long).to(device)
+        y_classes_targeted_adaptive = y_classes_targeted_naive = torch.Tensor(y_classes_targeted).to(torch.long).to(
+            device)
         y_classes_adaptive = y_classes_naive = torch.Tensor(y_classes).to(torch.long).to(device)
 
         if output_type == 'paints_inference':
@@ -134,7 +136,6 @@ def attacker(experiment, dataset, attack, adaptive_model, naive_model, run_naive
                                       attack_nb_iter, targeted,
                                       y_classes_targeted_adaptive if targeted else y_classes_adaptive,
                                       n_classes, device)
-
 
         end_time = time.time()
         attack_adaptive_time = end_time - start_time
@@ -175,8 +176,10 @@ def attacker(experiment, dataset, attack, adaptive_model, naive_model, run_naive
         for pi in range(len(classes)):
             results_dict[f'prob_{classes[pi]}'].extend(np.array(adv_naive_probs)[:, pi].tolist() + \
                                                        np.array(adv_adaptive_probs)[:, pi].tolist())
-        results_dict['attack_time_sec_avg'].extend(([attack_naive_time/batch_size] * n) + ([attack_adaptive_time/batch_size] * n))
-        results_dict['defense_time_sec_avg'].extend(([defense_adaptive_time/batch_size] * n) + ([defense_adaptive_time/batch_size] * n))
+        results_dict['attack_time_sec_avg'].extend(
+            ([attack_naive_time / batch_size] * n) + ([attack_adaptive_time / batch_size] * n))
+        results_dict['defense_time_sec_avg'].extend(
+            ([defense_adaptive_time / batch_size] * n) + ([defense_adaptive_time / batch_size] * n))
 
         # Validate lengths
         len_validate = len(results_dict['experiment'])
@@ -189,4 +192,3 @@ def attacker(experiment, dataset, attack, adaptive_model, naive_model, run_naive
     results_df = pd.DataFrame(results_dict)
     print(f'finished attacking {phase}!')
     return results_df
-

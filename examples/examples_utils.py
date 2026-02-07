@@ -1,9 +1,9 @@
 import torch
-from util.consts import IMAGENET_7_LABELS
+from util.consts import IMAGENET_2012_LABELS
 import matplotlib.pyplot as plt
 
 
-def classify(x, probs, acual_index, targeted_index):
+def classify(x, probs, actual_index, targeted_index):
     # Ensure probs is a list of probabilities
     if isinstance(probs, torch.Tensor):
         probs = probs.squeeze().tolist()
@@ -11,11 +11,11 @@ def classify(x, probs, acual_index, targeted_index):
     # Data for the bar chart
     top_7 = list(sorted(range(len(probs)), key=lambda i: probs[i]))[::-1]
     colors = ['blue'] * len(top_7)
-    idx_actual = top_7.index(acual_index)
+    idx_actual = top_7.index(actual_index)
     colors[idx_actual] = 'green'
     idx_targeted = top_7.index(targeted_index)
     colors[idx_targeted] = 'red'
-    labels = [IMAGENET_7_LABELS[idx] for idx in top_7]
+    labels = [IMAGENET_2012_LABELS[idx] for idx in top_7]
     probs_top_5 = [probs[t] for t in top_7]
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 3))
@@ -47,7 +47,7 @@ def plot_lines(probs, output_every):
     # Plotting
     plt.figure(figsize=(10, 2.5))
     for class_index in range(probs.shape[1]):
-        plt.plot(output_every, probs.cpu().detach().numpy()[:, class_index], label=IMAGENET_7_LABELS[class_index])
+        plt.plot(output_every, probs.cpu().detach().numpy()[:, class_index], label=IMAGENET_2012_LABELS[class_index])
         plt.scatter(output_every, probs.cpu().detach().numpy()[:, class_index], s=10)
 
     plt.xlabel('Paint Step')

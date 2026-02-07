@@ -11,7 +11,7 @@ from model.painter_surrogate import IdentitySurrogate_, PainterSurrogate
 from model.painter_utils import load_painter, paint_images
 from model.pcld_bpda import BPDAPainter, PCL, CLD, PCLD
 from util.attacks import attacker
-from util.consts import NUM_OF_HYPHENS, IMAGENET_7_LABELS, RESOURCES_RESULTS_DIR, \
+from util.consts import NUM_OF_HYPHENS, IMAGENET_2012_LABELS, RESOURCES_RESULTS_DIR, \
     RESOURCES_MODELS_DIR
 from util.datasets import transform_dataset, get_loaders
 from util.models import load_model
@@ -26,8 +26,8 @@ def main_attack_pcld(args, device):
          args.attack_train, args.epsilons)
 
     # =================== Load the dataset =================== #
-    n_classes = len(IMAGENET_7_LABELS.keys())
-    classes = sorted(IMAGENET_7_LABELS.values())
+    n_classes = len(IMAGENET_2012_LABELS.keys())
+    classes = sorted(IMAGENET_2012_LABELS.values())
     train_transform = transform_dataset(augmentations=False, to_integers=False)
     test_transform = transform_dataset(augmentations=False, to_integers=False)
     loaders = get_loaders(dataset, train_transform, test_transform, batch_size)
@@ -96,6 +96,7 @@ def main_attack_pcld(args, device):
     res_test = pd.DataFrame()
     res_epsilon = pd.DataFrame()
     targeted = attack_direction == 'targeted'
+
     for epsilon in args.epsilons:
         print(f'attack with epsilon {epsilon}/255...')
         if attack_train:

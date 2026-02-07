@@ -1,7 +1,7 @@
 import os
 import torch
 
-from util.consts import NUM_OF_HYPHENS, IMAGENET_7_LABELS, RESOURCES_RESULTS_DIR, \
+from util.consts import NUM_OF_HYPHENS, IMAGENET_2012_LABELS, RESOURCES_RESULTS_DIR, \
     RESOURCES_MODELS_DIR
 from util.datasets import concat_to_one_decisioner_dataset
 from util.models import trainer_decisioner, get_predictions_df_decisioner, arange_results_decisioner
@@ -20,8 +20,8 @@ def main_train_decisioner(args, device):
     df_dataset = concat_to_one_decisioner_dataset(ds_local_dir)
 
     # sample weights per epsilon
-    n_classes = len(IMAGENET_7_LABELS.keys())
-    classes = sorted(IMAGENET_7_LABELS.values())
+    n_classes = len(IMAGENET_2012_LABELS.keys())
+    classes = sorted(IMAGENET_2012_LABELS.values())
     epsilons = list(sorted(df_dataset.epsilon.unique()))
     epsilons_weights = {eps: 15-eps if eps < 15 else (2 if eps < 100 else 1) for eps in epsilons}
     prob_cols = ['prob_'+c for c in classes]

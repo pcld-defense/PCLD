@@ -2,7 +2,7 @@ import os
 import pandas as pd
 
 from model.pretrained_net import get_net_and_optim
-from util.consts import RESOURCES_DATASETS_DIR, NUM_OF_HYPHENS, IMAGENET_7_LABELS, RESOURCES_RESULTS_DIR
+from util.consts import RESOURCES_DATASETS_DIR, NUM_OF_HYPHENS, IMAGENET_2012_LABELS, RESOURCES_RESULTS_DIR
 from util.datasets import transform_dataset, generator_loader_train_full, get_loaders
 from util.models import process_epoch_clf, get_best_epoch
 
@@ -13,9 +13,8 @@ def main_train_classifier(args, device):
         args.dataset, args.experiment_name, args.batch_size, args.max_epochs, args.find_best_epoch
 
     # =================== Load the dataset =================== #
-    n_classes = len(IMAGENET_7_LABELS.keys())
-    classes = sorted(IMAGENET_7_LABELS.values())
-    net, criterion, optimizer, scheduler = get_net_and_optim(n_classes, device, 0.01)
+    n_classes = len(IMAGENET_2012_LABELS.keys())
+    classes = sorted(IMAGENET_2012_LABELS.values())
     train_transform = transform_dataset(augmentations=True)
     test_transform = transform_dataset(augmentations=False)
     loaders = get_loaders(dataset, train_transform, test_transform, batch_size)
