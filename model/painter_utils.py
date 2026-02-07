@@ -1,200 +1,200 @@
-import os.path
-
-import cv2
-import numpy as np
 import torch
-from scipy.ndimage import convolve
+import torch.nn.functional as F
 
-from util.consts import NUM_OF_HYPHENS, RESOURCES_MODELS_DIR
+from util.consts import PainterConsts, NUM_OF_HYPHENS
+from model.painter import ActorResNet, RendererFCN
 
+
+# --- 1. Vectorized Utility Functions ---
 
 def large2small(x, divide, width, canvas_cnt):
-    # (width * divide, width * divide, 3) -> (divide, divide, width, width, 3)
-    x = x.reshape(divide, width, divide, width, 3)
-    x = np.transpose(x, (0, 2, 1, 3, 4))
-    # (divide, divide, width, width, 3) -> (canvas_cnt, width, width, 3)
-    x = x.reshape(canvas_cnt, width, width, 3)
+    """Split the image into patches using pure Torch."""
+    # Input x: (B, C, H_large, W_large)
+    B, C, H, W = x.shape
+    x = x.view(B, C, divide, width, divide, width)
+    x = x.permute(0, 2, 4, 1, 3, 5).reshape(B * canvas_cnt, C, width, width)
     return x
 
 
 def small2large(x, divide, width):
-    # (d * d, width, width) -> (d * width, d * width)
-    x = x.reshape(divide, divide, width, width, -1)
-    x = np.transpose(x, (0, 2, 1, 3, 4))
-    x = x.reshape(divide * width, divide * width, -1)
+    """Combine patches into original image using pure Torch."""
+    # Input x: (divide*divide, C, width, width)
+    C = x.shape[1]
+    x = x.view(divide, divide, C, width, width)
+    x = x.permute(2, 0, 3, 1, 4).reshape(C, divide * width, divide * width)
     return x
 
 
-def decode(x, canvas, decoder, width):  # b * (10 + 3)
-    x = x.view(-1, 10 + 3)
-    stroke = 1 - decoder(x[:, :10])
-    stroke = stroke.view(-1, width, width, 1)
-    color_stroke = stroke * x[:, -3:].view(-1, 1, 1, 3)
-    stroke = stroke.permute(0, 3, 1, 2)
-    color_stroke = color_stroke.permute(0, 3, 1, 2)
+def smooth(img):
+    """Apply 3x3 box blur on GPU using Depthwise Convolution."""
+    # img: (3, H, W)
+    kernel = torch.ones((3, 1, 3, 3), device=img.device) / 9.0
+
+    # Pad to maintain resolution
+    img_padded = F.pad(img.unsqueeze(0), (1, 1, 1, 1), mode='replicate')
+    smoothed = F.conv2d(img_padded, kernel, groups=3).squeeze(0)
+
+    # Restore boundary pixels
+    smoothed[:, 0, :] = img[:, 0, :]
+    smoothed[:, -1, :] = img[:, -1, :]
+    smoothed[:, :, 0] = img[:, :, 0]
+    smoothed[:, :, -1] = img[:, :, -1]
+    return smoothed
+
+
+def decode(x, canvas, decoder, width):
+    """Optimized stroke decoding with in-place arithmetic."""
+    x = x.view(-1, 13)
+    # stroke: (Batch, 1, Width, Width)
+    stroke = 1.0 - decoder(x[:, :10])
+    stroke = stroke.view(-1, 1, width, width)
+
+    # color_stroke: (Batch, 3, Width, Width)
+    color_stroke = stroke * x[:, -3:].view(-1, 3, 1, 1)
+
+    # Reshape for the 5-stroke sequence
+    # (Batch/5, 5, C, W, W)
     stroke = stroke.view(-1, 5, 1, width, width)
     color_stroke = color_stroke.view(-1, 5, 3, width, width)
+
     res = []
+    # Pre-calculating the inverse once for the whole batch
+    inv_stroke = 1.0 - stroke
+
     for i in range(5):
-        canvas = canvas * (1 - stroke[:, i]) + color_stroke[:, i]
+        # Using in-place operations to maximize speed
+        canvas = canvas * inv_stroke[:, i] + color_stroke[:, i]
         res.append(canvas)
+
     return canvas, res
 
 
-def smooth(img):
-    # Ensure the kernel is applied independently to each color channel
-    kernel = np.array([[1, 1, 1],
-                       [1, 1, 1],
-                       [1, 1, 1]]) / 9.0
+def prepare_output(canvas, to_shape, divide, width, is_divide=False):
+    """GPU-based image post-processing."""
+    output = canvas.detach()
 
-    # Convolve each channel separately if img is an RGB image
-    if img.ndim == 3 and img.shape[2] == 3:
-        smoothed_img = np.zeros_like(img)
-        for i in range(3):  # Process each channel
-            smoothed_img[:, :, i] = convolve(img[:, :, i], kernel, mode='nearest')
-    else:
-        smoothed_img = convolve(img, kernel, mode='nearest')
-
-    # Restore boundary pixels to original (preserving edges explicitly)
-    # Top and bottom rows
-    smoothed_img[0, :] = img[0, :]
-    smoothed_img[-1, :] = img[-1, :]
-    # Left and right columns
-    smoothed_img[:, 0] = img[:, 0]
-    smoothed_img[:, -1] = img[:, -1]
-
-    return smoothed_img
-
-
-def prepare_output(canvas, to_shape,
-                   divide, device, is_divide=False, width=300):
-    output = canvas.detach().cpu().numpy()  # (divide * divide, 3, width, width)
-    output = np.transpose(output, (0, 2, 3, 1))
     if is_divide:
         output = small2large(output, divide, width)
         output = smooth(output)
     else:
-        output = output[0]
+        output = output[0]  # (3, W, W)
 
-    output = output * 255
-    output = output.astype('uint8')
-    output = cv2.resize(output, (to_shape, to_shape))
-    output = torch.tensor(output).to(device)
-    return output
+    # Resize on GPU
+    output = output.unsqueeze(0)
+    output = F.interpolate(output, size=(to_shape, to_shape), mode='bilinear', align_corners=False)
 
+    # Scale and convert to uint8 (H, W, 3)
+    output = (output.squeeze(0) * 255).clamp(0, 255).to(torch.uint8)
+    return output.permute(1, 2, 0)
+
+
+# --- 2. Main Painting Logic ---
 
 def paint(img, output_every, device, actor, renderer):
-    output_width = 300  # imagenet like
-    max_step = 80
-    width = 128
-    divide = 5
-    canvas_cnt = divide * divide
-    verbose = False
-    T = torch.ones([1, 1, width, width], dtype=torch.float32).to(device)  # -> (1, 1, 128, 128)
+    output_width = img.shape[1]
+    canvas_cnt = PainterConsts.DIVIDE * PainterConsts.DIVIDE
 
-    # Coordconv
-    i = torch.arange(width).view(-1, 1).float() / (width - 1)  # Column vector
-    j = torch.arange(width).view(1, -1).float() / (width - 1)  # Row vector
-    coord = torch.stack([i.repeat(1, width), j.repeat(width, 1)], dim=0)
-    coord = coord.unsqueeze(0)
-    coord = coord.to(device)  # -> (1, 2, 128, 128)
+    # --- Input Pre-processing (Torch) ---
+    if not isinstance(img, torch.Tensor):
+        img = torch.from_numpy(img).to(device).float()
+    else:
+        img = img.to(device).float()
 
-    # canvas
-    canvas = torch.zeros([1, 3, width, width]).to(device)  # -> (1, 3, 128, 128)
+    # Standardize to (1, 3, H, W)
+    if img.ndim == 3:
+        if img.shape[-1] == 3: img = img.permute(2, 0, 1)
+        img = img.unsqueeze(0)
+    if img.max() > 1.0: img /= 255.0
 
-    if isinstance(img, torch.Tensor):
-        img = img.to('cpu').detach().numpy()  # Convert to numpy array
-    if img.ndim == 3 and img.shape[2] != 3:  # Check if image has 3 channels
-        img = np.transpose(img, (1, 2, 0))  # Reorder dimensions if needed
+    # Prepare patches
+    patch_img_full = F.interpolate(img, size=(PainterConsts.WIDTH * PainterConsts.DIVIDE,
+                                              PainterConsts.WIDTH * PainterConsts.DIVIDE), mode='bilinear')
+    patch_img = large2small(patch_img_full, PainterConsts.DIVIDE, PainterConsts.WIDTH,
+                            canvas_cnt)  # (25, 3, 128, 128)
 
-    # prepare the patched image
-    patch_img = cv2.resize(img, (width * divide, width * divide))  # -> (640, 640, 3)
-    patch_img = large2small(patch_img, divide, width, canvas_cnt)  # -> (25, 128, 128, 3)
-    patch_img = np.transpose(patch_img, (0, 3, 1, 2))  # -> (25, 3, 128, 128)
-    patch_img = torch.tensor(patch_img).to(device).float()
+    # Prepare global image
+    img_low = F.interpolate(img, size=(PainterConsts.WIDTH, PainterConsts.WIDTH), mode='bilinear')  # (1, 3, 128, 128)
 
-    # prepare the image
-    img = cv2.resize(img, (width, width))  # -> (128, 128, 3)
-    img = img.reshape(1, width, width, 3)  # -> (1, 128, 128, 3)
-    img = np.transpose(img, (0, 3, 1, 2))  # -> (1, 3, 128, 128)
-    img = torch.tensor(img).to(device).float()
+    # Prepare Coordinate Grids
+    i = torch.linspace(0, 1, PainterConsts.WIDTH, device=device).view(-1, 1).repeat(1, PainterConsts.WIDTH)
+    j = torch.linspace(0, 1, PainterConsts.WIDTH, device=device).view(1, -1).repeat(PainterConsts.WIDTH, 1)
+    coord = torch.stack([i, j], dim=0).unsqueeze(0)  # (1, 2, 128, 128)
 
-    # divide the painting to two phases (regular phase & patched phase)
-    if divide > 1:
-        max_step //= 2
+    T = torch.ones([1, 1, PainterConsts.WIDTH, PainterConsts.WIDTH], device=device)
+    canvas = torch.zeros([1, 3, PainterConsts.WIDTH, PainterConsts.WIDTH], device=device)
+
+    if PainterConsts.DIVIDE > 1:
+        PainterConsts.MAX_STEP //= 2
 
     img_idx = 0
     output_canvases = []
+
     with torch.no_grad():
-        # regular phase
-        for i in range(max_step):
-            stepnum = T * i / max_step
-            actor_input = torch.cat([canvas, img, stepnum, coord], 1)
+        # PHASE 1: Regular (Global)
+        for i in range(PainterConsts.MAX_STEP):
+            stepnum = T * (i / PainterConsts.MAX_STEP)
+            actor_input = torch.cat([canvas, img_low, stepnum, coord], 1)
             actions = actor(actor_input)
-            canvas, res = decode(actions, canvas, renderer, width)
-            if verbose:
-                print('canvas step {}, L2Loss = {}'.format(i, ((canvas - img) ** 2).mean()))
+            canvas, res = decode(actions, canvas, renderer, PainterConsts.WIDTH)
+
             for j in range(5):
                 img_idx += 1
                 if img_idx in output_every:
-                    output_canvas = prepare_output(res[j], output_width, divide, device,
-                                                   is_divide=False, width=width)
-                    output_canvases.append(output_canvas)
+                    out = prepare_output(res[j], output_width, PainterConsts.DIVIDE, PainterConsts.WIDTH, False)
+                    output_canvases.append(out)
 
-        # patched phase
-        if divide > 1:
-            canvas = canvas[0].detach().cpu().numpy()
-            canvas = np.transpose(canvas, (1, 2, 0))
-            canvas = cv2.resize(canvas, (width * divide, width * divide))
-            canvas = large2small(canvas, divide, width, canvas_cnt)
-            canvas = np.transpose(canvas, (0, 3, 1, 2))
-            canvas = torch.tensor(canvas).to(device).float()
-            coord = coord.expand(canvas_cnt, 2, width, width)
-            T = T.expand(canvas_cnt, 1, width, width)
-            for i in range(max_step):
-                stepnum = T * i / max_step
-                actor_input = torch.cat([canvas, patch_img, stepnum, coord], 1)
+        # PHASE 2: Patched (Local)
+        if PainterConsts.DIVIDE > 1:
+            # Resize global canvas to match patch resolution
+            canvas = F.interpolate(canvas, size=(PainterConsts.WIDTH * PainterConsts.DIVIDE,
+                                                 PainterConsts.WIDTH * PainterConsts.DIVIDE), mode='bilinear')
+            canvas = large2small(canvas, PainterConsts.DIVIDE, PainterConsts.WIDTH,
+                                 canvas_cnt)  # (25, 3, 128, 128)
+
+            # Parallelize: Process all 25 patches as one batch
+            coord_p = coord.expand(canvas_cnt, -1, -1, -1)
+            T_p = T.expand(canvas_cnt, -1, -1, -1)
+
+            for i in range(PainterConsts.MAX_STEP):
+                stepnum = T_p * (i / PainterConsts.MAX_STEP)
+                actor_input = torch.cat([canvas, patch_img, stepnum, coord_p], 1)
                 actions = actor(actor_input)
-                canvas, res = decode(actions, canvas, renderer, width)
-                if verbose:
-                    print('divided canvas step {}, L2Loss = {}'.format(i, ((canvas - patch_img) ** 2).mean()))
-                for j in range(len(res)):
-                    img_idx += divide ** 2
+                canvas, res = decode(actions, canvas, renderer, PainterConsts.WIDTH)
+
+                for j in range(5):
+                    img_idx += canvas_cnt
                     if img_idx in output_every:
-                        output_canvas = prepare_output(res[j], output_width, divide, device,
-                                                       is_divide=True, width=width)
-                        output_canvases.append(output_canvas)
-    output_canvases = torch.stack(output_canvases, dim=0).to(device)
-    output_canvases = output_canvases.type(torch.float32)
-    output_canvases = output_canvases.view((1,) + tuple(output_canvases.shape))
-    output_canvases /= 255.
-    output_canvases = output_canvases.permute(0, 1, 4, 2, 3)
-    return output_canvases
+                        out = prepare_output(res[j], output_width, PainterConsts.DIVIDE, PainterConsts.WIDTH, True)
+                        output_canvases.append(out)
+
+    # --- Final Output Formatting ---
+    if not output_canvases:
+        return torch.empty(0)
+
+    # Stack: (Steps, H, W, 3) -> Convert to (1, Steps, 3, H, W)
+    final_out = torch.stack(output_canvases, dim=0).float() / 255.0
+    final_out = final_out.permute(0, 3, 1, 2).unsqueeze(0)
+
+    return final_out
 
 
 def paint_images(x, output_every, device, actor, renderer, add_original=True):
     x_out = []
+    # x: (Batch, 3, H, W)
     for i in range(x.shape[0]):
         canvases = paint(x[i], output_every, device, actor, renderer)
         if add_original:
-            # add the original image (t=∞) as well
-            canvases = torch.cat([canvases, x[i:i + 1].unsqueeze(1)], dim=1)
+            orig = x[i:i + 1].unsqueeze(1)  # (1, 1, 3, H, W)
+            canvases = torch.cat([canvases, orig], dim=1)
         x_out.append(canvases)
-    x_out = torch.cat(x_out, dim=0)
-    return x_out
+    return torch.cat(x_out, dim=0)
 
 
-from model.painter import ActorResNet, RendererFCN
-
-
-def load_painter(device):
+def load_painter(actor_path, renderer_path, device):
     print('-' * NUM_OF_HYPHENS)
     print('Loading painter...')
-    actor_path = os.path.join(RESOURCES_MODELS_DIR, 'painter_actor/actor.pkl')
-    renderer_path = os.path.join(RESOURCES_MODELS_DIR, 'painter_renderer/renderer.pkl')
-    if not os.path.exists(actor_path) or not os.path.exists(renderer_path):
-        raise Exception(f'Missing actor or renderer: \n{actor_path}\n{renderer_path}')
-    actor = ActorResNet(9, 18, 65)  # 65 = 5 (action_bundle) * 13 (stroke parameters)
+
+    actor = ActorResNet()
     actor.load_state_dict(torch.load(actor_path))
     renderer = RendererFCN()
     renderer.load_state_dict(torch.load(renderer_path))
