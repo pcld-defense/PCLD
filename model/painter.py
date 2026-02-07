@@ -87,7 +87,8 @@ class Bottleneck(nn.Module):
 
 
 class ActorResNet(nn.Module):
-    def __init__(self, num_inputs: int, depth: int, num_outputs: int):
+    # 65 = 5 (action_bundle) * 13 (stroke parameters)
+    def __init__(self, num_inputs: int = 9, depth: int = 18, num_outputs: int = 65):
         super(ActorResNet, self).__init__()
         self.in_planes = 64
 
