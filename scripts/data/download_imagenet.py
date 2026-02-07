@@ -12,10 +12,10 @@ hf_token = os.getenv("HF_TOKEN")
 login(hf_token)
 ds = load_dataset("imagenet-1k", split="train", streaming=True, trust_remote_code=True)
 
-images_per_class = 100
+images_per_class = 200
 total_classes = 1000
 target_total = images_per_class * total_classes
-output_dir = "/home/idanbib/PCLD/imagenet_100_per_class"
+output_dir = "/home/idanbib/PCLD/data/imagenet/train"
 
 counts = {i: 0 for i in range(total_classes)}
 total_saved = 0

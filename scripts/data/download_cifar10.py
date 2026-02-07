@@ -6,11 +6,10 @@ from datasets import load_dataset
 from PIL import Image
 from dotenv import load_dotenv
 
-
 hf_token = os.getenv("HF_TOKEN")
 login(hf_token)
 ds = load_dataset("uoft-cs/cifar10", split="train", trust_remote_code=True)
-output_dir = "/home/idanbib/PCLD/cifar10/train"
+output_dir = "/home/idanbib/PCLD/data/cifar10/train"
 
 class_names = ds.features["label"].names
 
@@ -21,6 +20,6 @@ for i, example in enumerate(tqdm(ds)):
     class_name = class_names[label_idx]
     class_path = os.path.join(output_dir, class_name)
     os.makedirs(class_path, exist_ok=True)
-    image.resize((224, 224), resample=Image.LANCZOS).save(os.path.join(class_path, f"{i}.png"))
+    image.save(os.path.join(class_path, f"{i}.png"))
 
 print(f"Done! Images saved in {output_dir}")
