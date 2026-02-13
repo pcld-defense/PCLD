@@ -1,4 +1,5 @@
 import os
+from typing import Union
 
 from PIL import Image
 import numpy as np
@@ -49,70 +50,32 @@ class ImageFolderWithPaths(datasets.ImageFolder):
         return tuple_with_path
 
 
-class IntegersScaler(object):
-    def __call__(self, img):
-        return img * 255
-
-
-def transform_dataset(augmentations: bool, to_integers: bool = True):
+def transform_dataset(augmentations: bool):
     composition = []
+
     if augmentations:
         composition.extend([transforms.RandomRotation(45), transforms.RandomHorizontalFlip(p=0.5)])
 
     composition.extend([transforms.ToTensor()])
-
-    if to_integers:
-        composition.extend([IntegersScaler()])
 
     return transforms.Compose(composition)
 
 
 def create_ds_loader(path: str, transform: transforms.Compose,
                      batch_size: int, shuffle: bool = True, num_workers: int = os.cpu_count() - 1):
+    print(transform)
     ds = ImageFolderWithPaths(path, transform=transform)
     loader = torch.utils.data.DataLoader(ds, batch_size=batch_size, shuffle=shuffle,
                                          num_workers=num_workers, pin_memory=True)
     return ds, loader
 
 
-def generator_loader_train_full(*itrs):
-    for itr in itrs:
-        for v in itr:
-            yield v
-
-
-# def get_loaders(dataset, train_transform, test_transform, batch_size):
-#     ds_local_dir = os.path.join(RESOURCES_DATASETS_DIR, dataset)
-#     ds_train_path = ds_local_dir #os.path.join(ds_local_dir, 'train')
-#     ds_val_path = os.path.join(ds_local_dir, 'val')
-#     ds_test_path = os.path.join(ds_local_dir, 'test')
-#     ds_train, loader_train = create_ds_loader(path=ds_train_path, transform=train_transform, batch_size=batch_size,
-#                                                num_workers=4)
-#     ds_val, loader_val = create_ds_loader(path=ds_val_path, transform=test_transform, batch_size=batch_size,
-#                                           num_workers=4)
-#     ds_test, loader_test = create_ds_loader(path=ds_test_path, transform=test_transform, batch_size=batch_size,
-#                                             num_workers=-1)
-#     # we will use this validation set for concat to the training set
-#     ds_val_to_concat, loader_val_to_concat = create_ds_loader(path=ds_val_path, transform=train_transform,
-#                                                               batch_size=batch_size)
-#     print(f'train batches {len(loader_train)} size {len(ds_train)}')
-#     print(f'validation batches {len(loader_val)} size {len(ds_val)}')
-#     print(f'test batches {len(loader_test)} size {len(ds_test)}')
-#     loaders = {
-#         'train': [ds_train, loader_train],
-#         'val': [ds_val, loader_val],
-#         'test': [ds_test, loader_test],
-#         'val_to_concat': [ds_val_to_concat, loader_val_to_concat]
-#     }
-#     return loaders
-
-
-def get_loaders(dataset, splits, transform, batch_size):
+def get_loaders(dataset: str, splits: Union[list, str], transform_dict: dict[str, transforms.Compose], batch_size: int):
     """
     Args:
         dataset: Name of the dataset directory.
         splits: A tuple/list of strings like ('train', 'val', 'test').
-        transform: Transform for training/augmentation.
+        transform_dict: Transform for training/augmentation.
         batch_size: Number of samples per batch.
 
     """
@@ -122,20 +85,11 @@ def get_loaders(dataset, splits, transform, batch_size):
     for split in splits:
         path = os.path.join(ds_local_dir, split)
 
-        ds, loader = create_ds_loader(path=path, transform=transform, batch_size=batch_size,
-                                  num_workers=os.cpu_count() - 1)
+        ds, loader = create_ds_loader(path=path, transform=transform_dict[split], batch_size=batch_size,
+                                      num_workers=4)
 
         loaders[split] = [ds, loader]
         print(f'{split} batches {len(loader)} size {len(ds)}')
-
-    # Handle the specific "concat" logic if requested specifically or as an option
-    if 'val_to_concat' in splits and 'val' in splits:
-        ds_v_c, loader_v_c = create_ds_loader(
-            path=os.path.join(ds_local_dir, 'val'),
-            transform=transform,
-            batch_size=batch_size
-        )
-        loaders['val_to_concat'] = [ds_v_c, loader_v_c]
 
     return loaders
 

@@ -1,12 +1,13 @@
 import os
 import time
+import glob
 
 from tqdm import tqdm
 from torchvision.utils import save_image
 
 from model.painter_utils import load_painter, paint_images
 from util.consts import RESOURCES_DATASETS_DIR, NUM_OF_HYPHENS, ACTOR_PATH, RENDERER_PATH
-from util.datasets import transform_dataset, generator_loader_train_full, get_loaders
+from util.datasets import transform_dataset, get_loaders
 
 
 def paint_dataset(actor, renderer, loaders, loader_name, device, output_every, ds_local_dir_new):
@@ -26,6 +27,13 @@ def paint_dataset(actor, renderer, loaders, loader_name, device, output_every, d
 
         x, y, paths = data[0].to(device), data[1].to(device), data[2]
         img_names = [p.split('/')[-1].split('.')[0] for p in paths]
+
+        if all(len(glob.glob(
+                f'{os.path.join(ds_local_dir_new, loader_name, idx_to_class[y[img_i].detach().cpu().item()])}/{img_names[img_i]}*')) > 0
+               for img_i in range(len(img_names))):
+            print(f"Batch {i} exists, skipping...")
+            continue
+
         start_time = time.time()
         canvases = paint_images(x=x,
                                 output_every=output_every,
@@ -55,22 +63,14 @@ def main_paint_dataset(args, device):
     dataset, splits, experiment_name, batch_size, output_every = \
         args.dataset, args.splits, args.experiment_name, args.batch_size, args.output_every
 
-    if isinstance(splits, str):
-        split_list = [s.strip() for s in splits.split(',')]
-    else:
-        split_list = list(splits)
-
     actor, renderer = load_painter(ACTOR_PATH, RENDERER_PATH, device)
 
     # =================== Load the dataset =================== #
-    transform = transform_dataset(augmentations=False, to_integers=False)
-    loaders = get_loaders(dataset, split_list, transform, batch_size)
+    transform = transform_dataset(augmentations=False)
+    transform_dict = {split: transform for split in splits}
+    loaders = get_loaders(dataset, splits, transform_dict, batch_size)
 
     ds_local_dir_new = os.path.join(RESOURCES_DATASETS_DIR, f'{experiment_name}', dataset)
 
-    for split in split_list:
+    for split in splits:
         paint_dataset(actor, renderer, loaders[split], split, device, output_every, ds_local_dir_new)
-    # paint_dataset(actor, renderer, loaders['val'][1], 'val', device, output_every, ds_local_dir_new)
-    # paint_dataset(actor, renderer, loaders['test'][1], 'test', device, output_every, ds_local_dir_new)
-    # paint_dataset(actor, renderer, generator_loader_train_full(loaders['train'][1], loaders['val_to_concat'][1]),
-    #               'train_full', device, output_every, ds_local_dir_new)
