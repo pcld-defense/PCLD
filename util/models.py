@@ -45,44 +45,52 @@ def load_model(model: torch.nn.Module, path: str, device: str) -> torch.nn.Modul
 def get_best_epoch(res_df, epoch):
     if len(res_df) == 0:
         return epoch, 0, 0
+
     val_res_df = res_df[res_df['ds_type'] == 'validation']
     val_res_df = val_res_df.sort_values(by='epoch').reset_index()
     best_iter_idx = val_res_df['avg_loss'].idxmin()
     best_epoch = val_res_df.loc[best_iter_idx, 'epoch']
     best_loss = val_res_df.loc[best_iter_idx, 'avg_loss']
     best_acc = val_res_df.loc[best_iter_idx, 'accuracy']
+
     return best_epoch, best_loss, best_acc
 
 
-def process_epoch_clf(experiment, device, epoch, net, loader, loader_name, n_batches,
-                      criterion, optimizer,
-                      results_df, n_classes, classes, is_train=True,
-                      phase='train', save_model=True,
+def process_epoch_clf(experiment, device, epoch, net, loader, loader_name, n_batches, criterion, optimizer,
+                      results_df, n_classes, classes, is_train=True, phase='train', save_model=True,
                       deep_evaluate=False, results_deep_df=None, scheduler=None):
     total_loss = 0.0
+
     if is_train:
         net.train()
     else:
         net.eval()
-    class_correct = list(0. for i in range(n_classes))
-    class_total = list(0. for i in range(n_classes))
+
+    class_correct = list(0. for _ in range(n_classes))
+    class_total = list(0. for _ in range(n_classes))
 
     for i, data in enumerate(loader, 0):
         inputs, labels = data[0].to(device), data[1].to(device)
+
         if 'cuda' in device:
             inputs, labels = inputs.cuda(non_blocking=True), labels.cuda(non_blocking=True)
+
         images_paths = data[2]
         optimizer.zero_grad()
         outputs = net(inputs)
         loss = criterion(outputs, labels)
+
         if is_train:
             loss.backward()
             optimizer.step()
+
         total_loss += loss.item()
         _, pred = torch.max(outputs, 1)
+
         # compare predictions to true label
         correct_tensor = pred.eq(labels.data.view_as(pred))
         correct = correct_tensor.numpy() if device == 'cpu' else correct_tensor.cpu().numpy()
+
         for j in range(len(labels.data)):
             label = labels.data[j]
             class_correct[label] += correct[j].item()
@@ -94,8 +102,6 @@ def process_epoch_clf(experiment, device, epoch, net, loader, loader_name, n_bat
                                                        epoch,
                                                        loader_name,
                                                        phase,
-                                                       loader_name,
-                                                       n_classes,
                                                        classes,
                                                        images_paths,
                                                        outputs,
@@ -131,7 +137,7 @@ def process_epoch_clf(experiment, device, epoch, net, loader, loader_name, n_bat
 
 
 def prepare_torch_ds_decisioner(df, p_steps, prob_cols, target_col, architecture,
-                     epsilons_weights, device):
+                                epsilons_weights, device):
     bys = ['experiment', 'targeted', 'image', 'attack', 'epsilon']
     df['idx'] = df[bys].astype(str).agg('-'.join, axis=1)
     df['sample_idx'], _ = pd.factorize(df['idx'])
@@ -140,7 +146,7 @@ def prepare_torch_ds_decisioner(df, p_steps, prob_cols, target_col, architecture
     if architecture == 'conv':
         x = x.view(-1, p_steps, len(prob_cols))
     else:  # fc
-        x = x.reshape(-1, p_steps*len(prob_cols))
+        x = x.reshape(-1, p_steps * len(prob_cols))
     df_target = df.groupby('sample_idx')[target_col].max().reset_index()
     y = torch.tensor(df_target[target_col].values, device=device,
                      dtype=torch.long)
@@ -150,7 +156,6 @@ def prepare_torch_ds_decisioner(df, p_steps, prob_cols, target_col, architecture
     sample_weights = torch.tensor([epsilons_weights[ep] for ep in epsilons], device=device)
     epsilons = torch.tensor(epsilons, device=device, dtype=torch.long)
     return x, y, indices, epsilons, sample_weights, df
-
 
 
 def process_epoch_decisioner(model, epoch, loader, dataset_size, n_classes, names_classes, device,
@@ -211,7 +216,6 @@ def process_epoch_decisioner(model, epoch, loader, dataset_size, n_classes, name
 def trainer_decisioner(decisioner_architechture, batch_size, max_epochs, find_best_epoch,
                        df_train, df_val, df_train_full, df_test, paint_steps, prob_cols, epsilons_weights,
                        n_classes, names_classes, epsilons, device):
-
     print('prepare dataset for training')
     bys = ['experiment', 'targeted', 'image', 'epsilon', 't']
     df_train = df_train.sort_values(by=bys)
@@ -221,16 +225,16 @@ def trainer_decisioner(decisioner_architechture, batch_size, max_epochs, find_be
 
     x_train, y_train, indices_train, epsilons_train, sample_weights_train, df_train = \
         prepare_torch_ds_decisioner(df_train, paint_steps, prob_cols, 'actual',
-                         decisioner_architechture, epsilons_weights, device)
+                                    decisioner_architechture, epsilons_weights, device)
     x_val, y_val, indices_val, epsilons_val, sample_weights_val, df_val = \
         prepare_torch_ds_decisioner(df_val, paint_steps, prob_cols, 'actual',
-                         decisioner_architechture, epsilons_weights, device)
+                                    decisioner_architechture, epsilons_weights, device)
     x_train_full, y_train_full, indices_train_full, epsilons_train_full, sample_weights_train_full, df_train_full = \
         prepare_torch_ds_decisioner(df_train_full, paint_steps, prob_cols, 'actual',
-                         decisioner_architechture, epsilons_weights, device)
+                                    decisioner_architechture, epsilons_weights, device)
     x_test, y_test, indices_test, epsilons_test, sample_weights_test, df_test = \
         prepare_torch_ds_decisioner(df_test, paint_steps, prob_cols, 'actual',
-                         decisioner_architechture, epsilons_weights, device)
+                                    decisioner_architechture, epsilons_weights, device)
 
     train_dataset = TensorDataset(x_train, y_train, indices_train, epsilons_train, sample_weights_train)
     val_dataset = TensorDataset(x_val, y_val, indices_val, epsilons_val, sample_weights_val)
@@ -275,7 +279,7 @@ def trainer_decisioner(decisioner_architechture, batch_size, max_epochs, find_be
                                              )
 
             is_correct_val = [int(a == b) for a, b in zip(y_actual_val, y_pred_val)]
-            acc_val = sum(is_correct_val)/len(is_correct_val)
+            acc_val = sum(is_correct_val) / len(is_correct_val)
             if acc_val > best_acc_val:
                 best_acc_val = acc_val
                 best_epoch = epoch
