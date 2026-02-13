@@ -54,4 +54,9 @@ def parse_args():
     parsed.output_every = str_to_int_list(parsed.output_every, ',')
     parsed.epsilons = str_to_int_list(parsed.epsilons, '|')
 
+    if isinstance(parsed.splits, str):
+        parsed.splits = [s.strip() for s in parsed.splits.split(',')]
+    else:
+        parsed.splits = list(parsed.splits)
+
     return parsed
