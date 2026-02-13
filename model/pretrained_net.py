@@ -1,23 +1,21 @@
 import torch.nn as nn
 import torch
-from torchvision import datasets, models, transforms
+from torchvision import models
 import torch.optim as optim
-import os
 
 torch.manual_seed(42)
 
 
-def get_net(net_name, pretrained=True):
-    if net_name == 'res_net_18_v1':
-        if pretrained:
-            model = models.resnet18(weights='IMAGENET1K_V1')
-        else:
-            model = models.resnet18()
-        return model
+def get_net(pretrained=True, weights='IMAGENET1K_V2'):
+    if pretrained:
+        model = models.resnet18(weights=weights)
+    else:
+        model = models.resnet18()
+    return model
 
 
-def get_net_and_optim(n_classes, device, lr):
-    net = models.resnet18(weights='IMAGENET1K_V1')
+def get_net_and_optim(n_classes, device, lr, weights='IMAGENET1K_V2', pretrained=False):
+    net = get_net( weights=weights, pretrained=pretrained)
     net.fc = nn.Linear(net.fc.in_features, n_classes)
     net = net.to(device)
     criterion = nn.CrossEntropyLoss()
