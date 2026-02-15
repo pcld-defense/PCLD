@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import torch
+import matplotlib.pyplot as plt
 
 
 def evaluate_print_decisioner(class_correct, class_total, loss, epoch,
@@ -25,6 +26,37 @@ def evaluate_print_decisioner(class_correct, class_total, loss, epoch,
         acc = eps_correct / eps_count
         # epsilon_stats[eps][0] = acc
         print(f'eps {eps}: {acc} ({eps_correct} / {eps_count})')
+
+
+def plot_loss_and_acc(df, output_path):
+    train_df = df[df['ds_type'] == 'train']
+    val_df = df[df['ds_type'] == 'validation']
+
+    # plot avg loss
+    plt.figure(figsize=(10, 6))
+    plt.plot(train_df['epoch'], train_df['avg_loss'], label='Train Loss', marker='o')
+    plt.plot(val_df['epoch'], val_df['avg_loss'], label='Validation Loss', marker='o')
+    plt.title('Average Loss per Epoch')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(f'{output_path}/average_loss.png')
+    plt.close()
+
+    # plot acc
+    plt.figure(figsize=(10, 6))
+    plt.plot(train_df['epoch'], train_df['accuracy'], label='Train Accuracy', marker='o')
+    plt.plot(val_df['epoch'], val_df['accuracy'], label='Validation Accuracy', marker='o')
+    plt.title('Accuracy per Epoch')
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(f'{output_path}/accuracy_per_epoch.png')
+    plt.close()
+
+    print("Plots generated: average_loss.png, accuracy_per_epoch.png")
 
 
 def evaluate_print(experiment, res_df, class_correct, class_total, loss, epoch,
@@ -95,66 +127,6 @@ def deep_evaluation_adv_training(experiment, res_deep_df, epoch, ds_name, ds_typ
         res_deep_dict['real_label_name'].append(real_label_name)
         res_deep_dict['pred_label'].append(pred_label)
         res_deep_dict['pred_label_name'].append(pred_label_name)
-
-    res_deep_df = pd.concat([res_deep_df, pd.DataFrame(res_deep_dict)],
-                            axis=0,
-                            ignore_index=True)
-    return res_deep_df
-
-
-def deep_evaluation_training(experiment, res_deep_df, epoch, ds_name, ds_type, filter_level,
-                             n_classes, classes, images_paths, outputs, labels,
-                             criterion, epsilon=None, step=None):
-    res_deep_dict = {
-        'experiment': [],
-        'epoch': [],
-        'ds_name': [],
-        'ds_type': [],
-        'image_name': [],
-        'image_path': [],
-        'filter_level': [],
-        'real_label': [],
-        'real_label_name': [],
-        'pred_prob_cat': [],
-        'pred_prob_dog': [],
-        'pred_prob_squirrel': [],
-        'pred_label': [],
-        'pred_label_name': [],
-        'loss': []
-    }
-    if epsilon:
-        res_deep_dict['epsilon'] = [epsilon] * len(images_paths)
-    if step:
-        res_deep_dict['step'] = [step] * len(images_paths)
-
-    _, pred_labels = torch.max(outputs, 1)
-    for i in range(len(images_paths)):
-        pred_label = pred_labels[i].item()
-        image_path = images_paths[i]
-        image_name = image_path.split('/')[-1].split('.')[0]
-        real_label = labels[i].item()
-        real_label_name = classes[real_label]
-        pred_prob_cat = outputs[i][classes.index("cat")].item()
-        pred_prob_dog = outputs[i][classes.index("dog")].item()
-        pred_prob_squirrel = outputs[i][classes.index("squirrel")].item()
-        pred_label_name = classes[pred_label]
-        loss = criterion(outputs[i], labels[i]).item()
-
-        res_deep_dict['experiment'].append(experiment)
-        res_deep_dict['epoch'].append(epoch)
-        res_deep_dict['ds_name'].append(ds_name)
-        res_deep_dict['ds_type'].append(ds_type)
-        res_deep_dict['image_name'].append(image_name)
-        res_deep_dict['image_path'].append(image_path)
-        res_deep_dict['filter_level'].append(filter_level)
-        res_deep_dict['real_label'].append(real_label)
-        res_deep_dict['real_label_name'].append(real_label_name)
-        res_deep_dict['pred_prob_cat'].append(pred_prob_cat)
-        res_deep_dict['pred_prob_dog'].append(pred_prob_dog)
-        res_deep_dict['pred_prob_squirrel'].append(pred_prob_squirrel)
-        res_deep_dict['pred_label'].append(pred_label)
-        res_deep_dict['pred_label_name'].append(pred_label_name)
-        res_deep_dict['loss'].append(loss)
 
     res_deep_df = pd.concat([res_deep_df, pd.DataFrame(res_deep_dict)],
                             axis=0,
@@ -446,61 +418,6 @@ def deep_evaluation_attack_for_decisioner(experiment, attack, surrogate_name, ep
         res_deep_dict['surrogate_pred_label_adv_name'].append(surrogate_pred_label_adv_name)
         res_deep_dict['surrogate_loss_orig'].append(surrogate_loss_orig)
         res_deep_dict['surrogate_loss_adv'].append(surrogate_loss_adv)
-
-    res_deep_df = pd.concat([res_deep_df, pd.DataFrame(res_deep_dict)],
-                            axis=0,
-                            ignore_index=True)
-    return res_deep_df
-
-
-def deep_evaluation_general(experiment, res_deep_df, dir,
-                            ds_name, classes, images_paths,
-                            outputs, labels, criterion):
-    res_deep_dict = {
-        'experiment': [],
-        'dir': [],
-        'ds_name': [],
-        'image_name': [],
-        'image_path': [],
-        'real_label': [],
-        'real_label_name': [],
-        'pred_prob_cat': [],
-        'pred_prob_dog': [],
-        'pred_prob_squirrel': [],
-        'pred_label': [],
-        'pred_label_name': [],
-        'loss': []
-    }
-
-    _, pred_labels = torch.max(outputs, 1)
-    for i in range(len(images_paths)):
-        pred_label = pred_labels[i].item()
-
-        image_path = images_paths[i]
-        image_name = image_path.split('/')[-1].split('.')[0]
-        real_label = labels[i].item()
-        real_label_name = classes[real_label]
-        pred_prob_cat = outputs[i][classes.index("cat")].item()
-        pred_prob_dog = outputs[i][classes.index("dog")].item()
-        pred_prob_squirrel = outputs[i][classes.index("squirrel")].item()
-
-        pred_label_name = classes[pred_label]
-        loss = criterion(outputs[i], labels[i]).item()
-
-        res_deep_dict['experiment'].append(experiment)
-        res_deep_dict['dir'].append(dir)
-        res_deep_dict['ds_name'].append(ds_name)
-        res_deep_dict['image_name'].append(image_name)
-        res_deep_dict['image_path'].append(image_path)
-        res_deep_dict['real_label'].append(real_label)
-        res_deep_dict['real_label_name'].append(real_label_name)
-
-        res_deep_dict['pred_prob_cat'].append(pred_prob_cat)
-        res_deep_dict['pred_prob_dog'].append(pred_prob_dog)
-        res_deep_dict['pred_prob_squirrel'].append(pred_prob_squirrel)
-        res_deep_dict['pred_label'].append(pred_label)
-        res_deep_dict['pred_label_name'].append(pred_label_name)
-        res_deep_dict['loss'].append(loss)
 
     res_deep_df = pd.concat([res_deep_df, pd.DataFrame(res_deep_dict)],
                             axis=0,
