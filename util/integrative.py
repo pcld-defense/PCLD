@@ -15,17 +15,31 @@ def parse_args():
                         help='the type of the experiment to run')
     parser.add_argument('--experiment_name', '-exn', type=str, required=True, default='test',
                         help='added name to the experiment')
+
+    ### DATASET
     parser.add_argument('--dataset', '-dta', type=str, required=True, help='the main dataset')
+    parser.add_argument('--dataset_type', '-dtat', type=str, required=True,
+                        help='the dataset type (cifar10 or imagenet')
     parser.add_argument('--splits', '-sp', type=str, nargs='+', required=True,
                         help='dataset type (e.g. train val test)')
     parser.add_argument('--batch_size', '-bsz', type=int, required=False, default=16, help='batch size')
+
+    ### PAINTER
     parser.add_argument('--output_every', '-oev', type=str, required=False,
                         default="50,100,200,300,400,500,600,700,950,1200,1700,2200,3200,4200,5200",
                         help='the selection of paint steps (t)')
+
+    ### Classifier
+    parser.add_argument('--model_type', '-mt', type=str, required=False, default="resnet18",
+                        help='architecture type (e.g. resnet18)')
+    parser.add_argument('--pretrained_weights', '-ptw', type=str, required=False,
+                        help='pretrained weights path')
     parser.add_argument('--max_epochs', '-mxp', type=int, required=False, default=51,
                         help='max epochs for training the model')
-    parser.add_argument('--find_best_epoch', '-fbp', type=int, required=False, default=0,
-                        help='whether to apply overfitting detection with train-validation phase')
+    parser.add_argument('--lr', '-lr', type=float, required=False, default=0.01,
+                        help='learning rate')
+    parser.add_argument('--patience', '-pat', type=int, required=False, default=5,
+                        help='patience for early stopping')
     # Pre-trained clf
     parser.add_argument('--classifier_experiment', '-clx', type=str, required=False,
                         help='the pre-trained classifier folder')
@@ -45,8 +59,6 @@ def parse_args():
                         help='attack iterations')
     parser.add_argument('--run_naive_attack', '-rna', type=int, required=False, default=0,
                         help='whether to run naive attack in addition to the adaptive attack')
-    parser.add_argument('--attack_train', '-att', type=int, required=False, default=0,
-                        help='whether to attack the train and the validation sets')
 
     parsed = parser.parse_args()
 

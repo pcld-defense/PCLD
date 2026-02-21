@@ -10,14 +10,14 @@ from util.models import process_epoch_clf, get_best_epoch, save_best_cls_model
 
 def main_train_classifier(args, device):
     # Fail fast
-    dataset, splits, experiment_name, model_type, pretrained_weights, lr, patience, batch_size, max_epochs = \
-        (args.dataset, args.splits, args.experiment_name, args.model_type, args.pretrained_weights,
+    dataset, dataset_type, splits, experiment_name, model_type, pretrained_weights, lr, patience, batch_size, max_epochs = \
+        (args.dataset, args.dataset_type, args.splits, args.experiment_name, args.model_type, args.pretrained_weights,
          args.lr, args.patience, args.batch_size, args.max_epochs)
 
     # =================== Load the dataset =================== #
 
-    train_transform = transform_dataset(augmentations=True)
-    val_transform = transform_dataset(augmentations=False)
+    train_transform = transform_dataset(augmentations=True, dataset_type=dataset_type)
+    val_transform = transform_dataset(augmentations=False, dataset_type=dataset_type)
     transform_dict = {"train": train_transform,
                       "val": val_transform}
 
@@ -32,10 +32,9 @@ def main_train_classifier(args, device):
     plots_local_path = os.path.join(RESOURCES_RESULTS_DIR, experiment_name)
     os.makedirs(os.path.join(RESOURCES_RESULTS_DIR, experiment_name), exist_ok=True)
     results_df = pd.DataFrame()
-    results_deep_df = pd.DataFrame()
 
     # =================== train the classifier =================== #
-    net, criterion, optimizer, scheduler = get_net_and_optim(n_classes, device, lr, model_type, pretrained_weights)
+    net, criterion, optimizer, scheduler = get_net_and_optim(dataset_type, device, lr, model_type, pretrained_weights)
     best_val_loss = float('inf')
 
     print(f'\nrun train_validate phase to find the best epoch\n')
