@@ -5,8 +5,7 @@ from datasets import load_dataset
 from PIL import Image
 from dotenv import load_dotenv
 
-from util.consts import IMAGENET_SHAPE
-
+from util.consts import IMAGENETConsts
 
 hf_token = os.getenv("HF_TOKEN")
 login(hf_token)
@@ -30,7 +29,7 @@ for example in ds:
         os.makedirs(class_path, exist_ok=True)
 
         img_filename = f"{label}_{counts[label]}.jpg"
-        example['image'].convert("RGB").resize((IMAGENET_SHAPE, IMAGENET_SHAPE), Image.Resampling.LANCZOS).save(
+        example['image'].convert("RGB").resize((IMAGENETConsts.SHAPE, IMAGENETConsts.SHAPE), Image.Resampling.LANCZOS).save(
             os.path.join(class_path, img_filename))
 
         counts[label] += 1
