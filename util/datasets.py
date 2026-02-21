@@ -1,13 +1,14 @@
 import os
 from typing import Union
 
+import torchvision
 from PIL import Image
 import numpy as np
 import pandas as pd
 import torch
 from torchvision import datasets, transforms
 
-from util.consts import RESOURCES_DATASETS_DIR
+from util.consts import RESOURCES_DATASETS_DIR, IMAGENETConsts
 
 
 def load_image(path: str) -> np.ndarray:
@@ -50,20 +51,31 @@ class ImageFolderWithPaths(datasets.ImageFolder):
         return tuple_with_path
 
 
-def transform_dataset(augmentations: bool):
+def transform_dataset(augmentations: bool, dataset_type: str):
     composition = []
-
     if augmentations:
-        composition.extend([transforms.RandomRotation(45), transforms.RandomHorizontalFlip(p=0.5)])
+        if dataset_type == "imagenet":
+            composition.extend([
+                transforms.RandomResizedCrop(224, scale=(0.5, 1.0)),
+                transforms.RandomHorizontalFlip(p=0.5),
+                transforms.RandomRotation(45)
+            ])
+        elif dataset_type == "cifar10":
+            composition.extend([
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+            ])
 
-    composition.extend([transforms.ToTensor()])
+    composition.extend([
+        transforms.ToTensor(),
+        transforms.Normalize(mean=IMAGENETConsts.MEAN, std=IMAGENETConsts.STD)
+    ])
 
     return transforms.Compose(composition)
 
 
 def create_ds_loader(path: str, transform: transforms.Compose,
                      batch_size: int, shuffle: bool = True, num_workers: int = os.cpu_count() - 1):
-    print(transform)
     ds = ImageFolderWithPaths(path, transform=transform)
     loader = torch.utils.data.DataLoader(ds, batch_size=batch_size, shuffle=shuffle,
                                          num_workers=num_workers, pin_memory=True)
