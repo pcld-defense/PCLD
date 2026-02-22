@@ -1,7 +1,6 @@
 import os
 
 import numpy as np
-import torch
 import torch.optim as optim
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
@@ -10,7 +9,7 @@ import torch
 
 from model.decisioner import Decisioner1DConv, DecisionerFC
 from util.consts import RESOURCES_MODELS_DIR
-from util.evaluations import deep_evaluation_training, evaluate_print, evaluate_print_decisioner
+from util.evaluations import evaluate_print, evaluate_print_decisioner
 
 
 def load_model(model: torch.nn.Module, path: str, device: str) -> torch.nn.Module:
@@ -42,6 +41,19 @@ def load_model(model: torch.nn.Module, path: str, device: str) -> torch.nn.Modul
     return model
 
 
+def save_best_cls_model(net, experiment, epoch, val_loss, best_val_loss):
+    save_dir = os.path.join(RESOURCES_MODELS_DIR, experiment)
+    os.makedirs(save_dir, exist_ok=True)
+
+    # Save as "best_model.pth" if validation loss improved
+    if val_loss < best_val_loss:
+        save_path = f'{save_dir}/best_model.pth'
+        torch.save(net.state_dict(), save_path)
+        print(f"--- Validation loss improved. Best model saved at epoch {epoch} ---")
+        return val_loss  # New best_val_loss
+    return best_val_loss
+
+
 def get_best_epoch(res_df, epoch):
     if len(res_df) == 0:
         return epoch, 0, 0
@@ -57,8 +69,7 @@ def get_best_epoch(res_df, epoch):
 
 
 def process_epoch_clf(experiment, device, epoch, net, loader, loader_name, n_batches, criterion, optimizer,
-                      results_df, n_classes, classes, is_train=True, phase='train', save_model=True,
-                      deep_evaluate=False, results_deep_df=None, scheduler=None):
+                      results_df, n_classes, classes, is_train=True, phase='train', save_model=True, scheduler=None):
     total_loss = 0.0
 
     if is_train:
@@ -75,7 +86,6 @@ def process_epoch_clf(experiment, device, epoch, net, loader, loader_name, n_bat
         if 'cuda' in device:
             inputs, labels = inputs.cuda(non_blocking=True), labels.cuda(non_blocking=True)
 
-        images_paths = data[2]
         optimizer.zero_grad()
         outputs = net(inputs)
         loss = criterion(outputs, labels)
@@ -95,18 +105,6 @@ def process_epoch_clf(experiment, device, epoch, net, loader, loader_name, n_bat
             label = labels.data[j]
             class_correct[label] += correct[j].item()
             class_total[label] += 1
-
-        if deep_evaluate:
-            results_deep_df = deep_evaluation_training(experiment,
-                                                       results_deep_df,
-                                                       epoch,
-                                                       loader_name,
-                                                       phase,
-                                                       classes,
-                                                       images_paths,
-                                                       outputs,
-                                                       labels,
-                                                       criterion)
 
     if is_train and scheduler:
         scheduler.step()
@@ -133,7 +131,7 @@ def process_epoch_clf(experiment, device, epoch, net, loader, loader_name, n_bat
         save_path = f'{save_dir}/model.pth'
         torch.save(net.state_dict(), save_path)
 
-    return results_df, results_deep_df
+    return results_df
 
 
 def prepare_torch_ds_decisioner(df, p_steps, prob_cols, target_col, architecture,
