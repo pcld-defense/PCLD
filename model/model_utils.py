@@ -6,7 +6,7 @@ import torch.nn as nn
 from torchvision import models
 
 from util.models import load_model
-from model.painter_surrogate import PainterSurrogate_
+from painter.painter_surrogate import PainterSurrogate_
 
 torch.manual_seed(42)
 

@@ -4,12 +4,12 @@ import pandas as pd
 import torch
 
 from model.model_utils import load_painter_surrogate
-from model.painter_surrogate import IdentitySurrogate_, PainterSurrogate
-from model.painter_utils import load_painter, paint_images
+from painter.painter_surrogate import IdentitySurrogate_, PainterSurrogate
+from painter.painter_utils import load_painter, paint_images
 from model.pcld_bpda import BPDAPainter, PCL
 from model.pretrained_net import get_net
 from util.attacks import attacker
-from util.consts import NUM_OF_HYPHENS, RESOURCES_RESULTS_DIR, RESOURCES_MODELS_DIR, ACTOR_PATH, RENDERER_PATH
+from util.consts import NUM_OF_HYPHENS, RESOURCES_RESULTS_DIR, RESOURCES_MODELS_DIR, ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH
 from util.datasets import transform_dataset, get_loaders
 
 
@@ -33,7 +33,7 @@ def main_attack_pcl(args, device):
     classes = sorted(train_ds.class_to_idx.keys())
 
     # =================== Load painter models =================== #
-    actor, renderer = load_painter(ACTOR_PATH, RENDERER_PATH, device)
+    actor, renderer = load_painter(ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH, device)
 
     # =================== Load painter's surrogate model =================== #
     print('-' * NUM_OF_HYPHENS)
@@ -65,18 +65,19 @@ def main_attack_pcl(args, device):
     # =================== Attack =================== #
     results_local_dir = os.path.join(RESOURCES_RESULTS_DIR, experiment_name)
     os.makedirs(results_local_dir, exist_ok=True)
+    attack_direction_bool = attack_direction == 'targeted'
     for epsilon in args.epsilons:
         print(f'attack with epsilon {epsilon}/255...')
         results_local_path = os.path.join(results_local_dir, f'{epsilon}_results.csv')
         res_train = attacker(experiment_name, dataset, attack, pcl, clf, run_naive_attack, loaders['train'][1], 'train',
-                             epsilon, attack_direction, output_every,
+                             epsilon, attack_direction_bool, output_every,
                              classes=classes,
                              attack_nb_iter=attack_nb_iter,
                              device=device,
                              output_type='paints_inference')
         # attack validation images
         res_val = attacker(experiment_name, dataset, attack, pcl, clf, run_naive_attack, loaders['val'][1], 'val',
-                           epsilon, attack_direction, output_every,
+                           epsilon, attack_direction_bool, output_every,
                            classes=classes,
                            attack_nb_iter=attack_nb_iter,
                            device=device,

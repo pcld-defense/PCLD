@@ -7,9 +7,9 @@ import torch.nn as nn
 
 from model.decisioner import Decisioner1DConv, DecisionerFC
 from model.model_utils import load_painter_surrogate
-from model.painter_surrogate import IdentitySurrogate_, PainterSurrogate
-from model.painter_utils import load_painter, paint_images
-from model.pcld_bpda import BPDAPainter, PCL, CLD, PCLD
+from painter.painter_surrogate import IdentitySurrogate_, PainterSurrogate
+from painter.painter_utils import load_painter, paint_images
+from model.pcld_bpda import BPDAPainter, CLD, PCLD
 from util.attacks import attacker
 from util.consts import NUM_OF_HYPHENS, IMAGENET_2012_LABELS, RESOURCES_RESULTS_DIR, \
     RESOURCES_MODELS_DIR
