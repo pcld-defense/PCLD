@@ -9,7 +9,7 @@ from cleverhans.torch.attacks.projected_gradient_descent import projected_gradie
 from autoattack import AutoAttack
 
 
-def attack_batch(model, x, attack, epsilon, attack_nb_iter, targeted, y_classes_targeted, device):
+def attack_batch(model, x, attack, epsilon, attack_nb_iter, targeted, y_classes_targeted):
     if epsilon == 0:
         return x
 
@@ -40,21 +40,6 @@ def attack_batch(model, x, attack, epsilon, attack_nb_iter, targeted, y_classes_
         adv_attack = AutoAttack(model, norm='Linf', eps=epsilon, version='standard')
         x_adv = adv_attack.run_standard_evaluation_individual(x, y_classes_targeted)
 
-        #
-        # elif attack == 'cw':
-        #     attack = CarliniLInfMethod(classifier=classifier,
-        #                                targeted=targeted,
-        #                                max_iter=attack_nb_iter,
-        #                                batch_size=x.shape[0],
-        #                                confidence=0.0,
-        #                                #  verbose=False
-        #                                )
-    #
-    # x_np = x.detach().cpu().numpy()
-    # # Perform the attack
-    # x_adv = attack.generate(x=x_np)
-    # x_adv = torch.tensor(x_adv, device=device)
-
     return x_adv
 
 
@@ -63,8 +48,10 @@ def attacker(experiment, dataset, attack, adaptive_model, naive_model, run_naive
     print(f'run attacks on {phase}...')
     epsilon_real = epsilon / 255.
     output_every_expanded = output_every + [999999]  # add the original image paint step = ∞
+
     if output_type == 'final_decision':
         output_every_expanded = [-1]
+
     paint_steps = len(output_every_expanded)
     results_dict = {
         'experiment': [],
@@ -74,16 +61,17 @@ def attacker(experiment, dataset, attack, adaptive_model, naive_model, run_naive
         'attack_time_sec_avg': [],
         'defense_time_sec_avg': []
     }
+
+
     targeted_jumps_allowed = 6 if targeted else 1  # make sure to attack to all direction for each image
 
-    for i, data in enumerate(loader, 0):
+    for i, data in enumerate(loader):
         print(f'batch {i} attack...')
         x, y, paths = data[0].to(device), data[1].to(device), data[2]
         img_names = [p.split('/')[-1].split('.')[0] for p in paths]
         y_classes = [yi.item() for yi in y]
         # generate targeted labels for adv attack
         y_classes_targeted = [int((yi.item() + random.randint(1, targeted_jumps_allowed)) % len(classes)) for yi in y]
-        # y_classes_targeted = [int((yi.item()+ 1) % len(classes)) for yi in y]
         y_classes_targeted_adaptive = y_classes_targeted_naive = torch.Tensor(y_classes_targeted).to(torch.long).to(
             device)
         y_classes_adaptive = y_classes_naive = torch.Tensor(y_classes).to(torch.long).to(device)
@@ -95,11 +83,12 @@ def attacker(experiment, dataset, attack, adaptive_model, naive_model, run_naive
         print(f'attack naïve attack for BPDA validation')
         start_time = time.time()
         x_adv_naive = x
+
         if run_naive_attack:
             x_adv_naive = attack_batch(naive_model, x, attack, epsilon_real,
                                        attack_nb_iter, targeted,
                                        y_classes_targeted_naive if targeted else y_classes_naive,
-                                       device)
+                                       )
         end_time = time.time()
         attack_naive_time = end_time - start_time
         print(f'attack adaptive BPDA model with surrogate model')
@@ -107,7 +96,7 @@ def attacker(experiment, dataset, attack, adaptive_model, naive_model, run_naive
         x_adv_adaptive = attack_batch(adaptive_model, x, attack, epsilon_real,
                                       attack_nb_iter, targeted,
                                       y_classes_targeted_adaptive if targeted else y_classes_adaptive,
-                                      device)
+                                      )
 
         end_time = time.time()
         attack_adaptive_time = end_time - start_time
@@ -156,7 +145,7 @@ def attacker(experiment, dataset, attack, adaptive_model, naive_model, run_naive
         for k in results_dict.keys():
             if len(results_dict[k]) != len_validate:
                 raise Exception(f'ValueError: All arrays must be of the same length!!!!!')
-                exit(1)
+
         print(f'finished attacking batch {i}!')
 
     results_df = pd.DataFrame(results_dict)
