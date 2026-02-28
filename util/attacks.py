@@ -1,15 +1,38 @@
+import random
 import time
 
-import pandas as pd
+import h5py
 import numpy as np
-import random
+import pandas as pd
 import torch
+from autoattack import AutoAttack
 from cleverhans.torch.attacks.fast_gradient_method import fast_gradient_method
 from cleverhans.torch.attacks.projected_gradient_descent import projected_gradient_descent
-from autoattack import AutoAttack
 
 
-def attack_batch(model, x, attack, epsilon, attack_nb_iter, targeted, y_classes_targeted):
+def attack_batch(model: torch.nn.Module, x: torch.Tensor, attack: str,
+                 epsilon: float, attack_nb_iter: int, targeted: bool,
+                 y_classes_targeted: torch.Tensor) -> torch.Tensor:
+    """Generates adversarial examples for a single batch using the chosen attack.
+
+    When epsilon is 0 the input is returned unchanged. Supported attacks:
+    'fgsm' (single-step L-inf), 'pgd' (multi-step L-inf), and 'aa'
+    (AutoAttack standard evaluation).
+
+    Args:
+        model: The model to attack; must accept (B, 3, H, W) input.
+        x: Clean input batch of shape (B, 3, H, W) in [0, 1].
+        attack: Attack name; one of 'fgsm', 'pgd', or 'aa'.
+        epsilon: L-inf perturbation budget in [0, 1] (already normalised).
+        attack_nb_iter: Number of PGD iterations (ignored for FGSM/AA).
+        targeted: If True the attack minimises the loss toward the target class;
+            if False it maximises the loss away from the true class.
+        y_classes_targeted: Label tensor of shape (B,) with target class indices
+            for targeted attacks or true class indices for untargeted attacks.
+
+    Returns:
+        Adversarial example batch of shape (B, 3, H, W) in [0, 1].
+    """
     if epsilon == 0:
         return x
 
@@ -36,44 +59,91 @@ def attack_batch(model, x, attack, epsilon, attack_nb_iter, targeted, y_classes_
                                            clip_min=0,
                                            clip_max=1)
     elif attack == 'aa':
-        # Initialize AutoAttack
         adv_attack = AutoAttack(model, norm='Linf', eps=epsilon, version='standard')
         x_adv = adv_attack.run_standard_evaluation_individual(x, y_classes_targeted)
 
     return x_adv
 
 
-def attacker(experiment, dataset, attack, adaptive_model, naive_model, run_naive_attack, loader, phase,
-             epsilon, targeted, output_every, classes, attack_nb_iter, device, output_type='final_decision'):
+def attacker(experiment: str, dataset: str, attack: str,
+             adaptive_model: torch.nn.Module, naive_model: torch.nn.Module,
+             run_naive_attack: int, loader: torch.utils.data.DataLoader,
+             phase: str, epsilon: int, targeted: bool, output_every: list[int],
+             classes: list[str], attack_nb_iter: int, device: str,
+             output_type: str = 'final_decision') -> pd.DataFrame:
+    """Runs adaptive and (optionally) naïve attacks over an entire data loader.
+
+    For each batch the function:
+    1. Generates a targeted or untargeted adversarial example using the
+       adaptive BPDA model (and optionally the naïve CLD model).
+    2. Defends both adversarial examples through the adaptive model and records
+       the softmax outputs.
+    3. Saves softmax probabilities to an HDF5 file and metadata to Parquet.
+
+    Args:
+        experiment: Experiment name used as a prefix for output file names.
+        dataset: Dataset name recorded in the results DataFrame.
+        attack: Attack algorithm; one of 'fgsm', 'pgd', or 'aa'.
+        adaptive_model: The PCLD/BPDA model used for the adaptive attack and
+            defence inference.
+        naive_model: The CLD model used for the naïve baseline attack (only
+            queried when run_naive_attack is True).
+        run_naive_attack: When non-zero, also runs a naïve attack against
+            `naive_model` for comparison.
+        loader: DataLoader yielding (images, labels, paths) tuples.
+        phase: Dataset split name (e.g. 'train', 'val', 'test') recorded in
+            the results.
+        epsilon: L-inf budget as an integer in pixel space (will be divided
+            by 255 internally).
+        targeted: If True, attacks toward a randomly chosen incorrect class.
+        output_every: Ordered list of stroke-count checkpoints used to label
+            the 't' column in the results.
+        classes: Sorted list of class name strings.
+        attack_nb_iter: Number of PGD iterations.
+        device: Target device string.
+        output_type: Controls how softmax outputs are recorded. 'final_decision'
+            stores a single prediction per image; 'paints_inference' stores one
+            prediction per paint step.
+
+    Returns:
+        DataFrame with one row per (image × paint step × attack type) containing
+        attack metadata, class predictions, timing, and HDF5 indices.
+    """
     print(f'run attacks on {phase}...')
     epsilon_real = epsilon / 255.
-    output_every_expanded = output_every + [999999]  # add the original image paint step = ∞
+    output_every_expanded = output_every + [999999]
 
     if output_type == 'final_decision':
         output_every_expanded = [-1]
 
     paint_steps = len(output_every_expanded)
+
+    h5_filename = f"{experiment}_{phase}_probs.h5"
+    f_h5 = h5py.File(h5_filename, 'w')
+    dset_probs = f_h5.create_dataset('softmax',
+                                     shape=(0, len(classes)),
+                                     maxshape=(None, len(classes)),
+                                     chunks=True,
+                                     compression="gzip")
+
     results_dict = {
         'experiment': [],
         'dataset': [], 'image': [], 't': [], 'phase': [], 'attacked_model': [], 'defense_model': [],
         'attack': [], 'targeted': [], 'targeted_jumps_allowed': [], 'targeted_label': [], 'norm': [], 'epsilon': [],
         'nb_iter': [], 'actual': [], 'actual_class': [], 'pred': [], 'pred_class': [],
-        'attack_time_sec_avg': [],
-        'defense_time_sec_avg': []
+        'attack_time_sec_avg': [], 'defense_time_sec_avg': [],
+        'h5_index': []
     }
 
-
-    targeted_jumps_allowed = 6 if targeted else 1  # make sure to attack to all direction for each image
+    targeted_jumps_allowed = 6 if targeted else 1
 
     for i, data in enumerate(loader):
         print(f'batch {i} attack...')
         x, y, paths = data[0].to(device), data[1].to(device), data[2]
         img_names = [p.split('/')[-1].split('.')[0] for p in paths]
         y_classes = [yi.item() for yi in y]
-        # generate targeted labels for adv attack
         y_classes_targeted = [int((yi.item() + random.randint(1, targeted_jumps_allowed)) % len(classes)) for yi in y]
-        y_classes_targeted_adaptive = y_classes_targeted_naive = torch.Tensor(y_classes_targeted).to(torch.long).to(
-            device)
+        y_classes_targeted_adaptive = y_classes_targeted_naive = torch.Tensor(y_classes_targeted).to(torch.long).to(device)
         y_classes_adaptive = y_classes_naive = torch.Tensor(y_classes).to(torch.long).to(device)
 
         if output_type == 'paints_inference':
@@ -87,17 +157,15 @@ def attacker(experiment, dataset, attack, adaptive_model, naive_model, run_naive
         if run_naive_attack:
             x_adv_naive = attack_batch(naive_model, x, attack, epsilon_real,
                                        attack_nb_iter, targeted,
-                                       y_classes_targeted_naive if targeted else y_classes_naive,
-                                       )
+                                       y_classes_targeted_naive if targeted else y_classes_naive)
         end_time = time.time()
         attack_naive_time = end_time - start_time
+
         print(f'attack adaptive BPDA model with surrogate model')
         start_time = time.time()
         x_adv_adaptive = attack_batch(adaptive_model, x, attack, epsilon_real,
                                       attack_nb_iter, targeted,
-                                      y_classes_targeted_adaptive if targeted else y_classes_adaptive,
-                                      )
-
+                                      y_classes_targeted_adaptive if targeted else y_classes_adaptive)
         end_time = time.time()
         attack_adaptive_time = end_time - start_time
 
@@ -109,6 +177,12 @@ def attacker(experiment, dataset, attack, adaptive_model, naive_model, run_naive
         defense_adaptive_time = (end_time - start_time) / 2
         adv_naive_decisions = np.argmax(adv_naive_probs, axis=1).tolist()
         adv_adaptive_decisions = np.argmax(adv_adaptive_probs, axis=1).tolist()
+
+        combined_probs = np.vstack([adv_naive_probs, adv_adaptive_probs])
+        curr_idx = dset_probs.shape[0]
+        dset_probs.resize(curr_idx + combined_probs.shape[0], axis=0)
+        dset_probs[curr_idx:] = combined_probs
+        h5_indices = list(range(curr_idx, curr_idx + combined_probs.shape[0]))
 
         print(f'saving batch {i} results')
         batch_size = len(img_names)
@@ -134,20 +208,24 @@ def attacker(experiment, dataset, attack, adaptive_model, naive_model, run_naive
         results_dict['actual_class'].extend(np.repeat(y_classes_names, paint_steps).tolist() * 2)
         results_dict['pred'].extend(adv_naive_decisions + adv_adaptive_decisions)
         results_dict['pred_class'].extend(y_pred_classes_names_naive + y_pred_classes_names_adaptive)
-
         results_dict['attack_time_sec_avg'].extend(
             ([attack_naive_time / batch_size] * n) + ([attack_adaptive_time / batch_size] * n))
         results_dict['defense_time_sec_avg'].extend(
             ([defense_adaptive_time / batch_size] * n) + ([defense_adaptive_time / batch_size] * n))
+        results_dict['h5_index'].extend(h5_indices)
 
-        # Validate lengths
         len_validate = len(results_dict['experiment'])
         for k in results_dict.keys():
             if len(results_dict[k]) != len_validate:
                 raise Exception(f'ValueError: All arrays must be of the same length!!!!!')
 
         print(f'finished attacking batch {i}!')
+        break
 
+    f_h5.close()
     results_df = pd.DataFrame(results_dict)
+    parquet_filename = f"{experiment}_{phase}_metadata.parquet"
+    results_df.to_parquet(parquet_filename, compression='snappy')
+    print(f'Saved metadata to {parquet_filename} and probs to {h5_filename}')
     print(f'finished attacking {phase}!')
     return results_df

@@ -1,5 +1,6 @@
 import os
 import re
+from typing import Union
 
 import torch
 import torch.nn as nn
@@ -11,17 +12,36 @@ from painter.painter_surrogate import PainterSurrogate_
 torch.manual_seed(42)
 
 
-def load_painter_surrogate(models_folder, device, output_every=None):
-    output_every_names = [f'model_t{oe}.pth' for oe in output_every]
+def load_painter_surrogate(models_folder: str, device: str,
+                           output_every: Union[list[int], None] = None) -> list[nn.Module]:
+    """Loads per-step painter surrogate models from a directory.
+
+    Scans `models_folder` for files matching `model_t<step>.pth`, sorts them
+    by stroke count ascending, and optionally filters to only the steps listed
+    in `output_every`. Returns an ordered list of loaded PainterSurrogate_
+    models ready for inference.
+
+    Args:
+        models_folder: Path to the directory containing surrogate checkpoints
+            named `model_t<step>.pth`.
+        device: Target device string (e.g. 'cuda' or 'cpu').
+        output_every: If provided, only load surrogates whose stroke count
+            matches an entry in this list. Loads all files when None.
+
+    Returns:
+        List of PainterSurrogate_ models sorted by ascending stroke count,
+        each moved to `device` with weights loaded.
+    """
+    output_every_names = [f'model_t{oe}.pth' for oe in output_every] if output_every else []
     models_names = os.listdir(models_folder)
     pattern = re.compile(r'model_t(\d+)\.pth')
 
-    def sort_key(filename):
+    def sort_key(filename: str) -> int:
         match = pattern.match(filename)
         if match:
             return int(match.group(1))
         else:
-            return float('inf')  # Return infinity if the pattern doesn't match
+            return float('inf')
 
     sorted_list = sorted(models_names, key=sort_key)
     surrogate_list = []

@@ -1,3 +1,4 @@
+import argparse
 import os
 import time
 import glob
@@ -10,7 +11,32 @@ from util.consts import RESOURCES_DATASETS_DIR, NUM_OF_HYPHENS, ACTOR_WEIGHTS_PA
 from util.datasets import transform_dataset, get_loaders
 
 
-def paint_dataset(actor, renderer, loaders, loader_name, device, output_every, ds_local_dir_new):
+def paint_dataset(actor, renderer, loaders: tuple, loader_name: str,
+                  device: str, output_every: list[int],
+                  ds_local_dir_new: str) -> None:
+    """Paints all images in a single dataset split and saves canvases to disk.
+
+    Iterates over each batch, calls paint_images to obtain canvases at the
+    requested stroke counts (plus the original at t=∞), and saves one PNG per
+    image per step. Batches whose output files already exist on disk are
+    skipped so the job can be resumed after interruption.
+
+    Saved filenames follow the pattern:
+        <img_name>_generated<stroke_count>.png
+    The original image uses stroke count 999999 as a placeholder for t=∞.
+
+    Args:
+        actor: Pretrained ActorResNet stroke-parameter predictor.
+        renderer: Pretrained RendererFCN stroke renderer.
+        loaders: Tuple of (dataset, dataloader) for this split.
+        loader_name: Name of the split (e.g. 'train', 'val', 'test'), used as
+            a subdirectory name and in log messages.
+        device: Target device string (e.g. 'cuda').
+        output_every: Ordered list of stroke-count checkpoints at which to save
+            canvases.
+        ds_local_dir_new: Root directory where painted images will be written.
+            Each class gets its own subdirectory.
+    """
     print('-' * NUM_OF_HYPHENS)
     print(f'Paint {loader_name}...')
 
@@ -43,6 +69,7 @@ def paint_dataset(actor, renderer, loaders, loader_name, device, output_every, d
                                 add_original=True)
         end_time = time.time()
         painting_avg_time += (end_time - start_time) / len(img_names)
+
         for img_i in range(canvases.shape[0]):
             img_name = img_names[img_i]
             img_label = idx_to_class[y[img_i].detach().cpu().item()]
@@ -58,14 +85,22 @@ def paint_dataset(actor, renderer, loaders, loader_name, device, output_every, d
     print(f'Finished painting {loader_name} (avg sec per image {painting_avg_time})')
 
 
-def main_paint_dataset(args, device):
-    # Fail fast
+def main_paint_dataset(args: argparse.Namespace, device: str) -> None:
+    """Entry point for the paint_dataset experiment.
+
+    Loads the pretrained painter, builds data loaders for the requested splits,
+    and paints each split, writing canvases to the datasets output directory.
+
+    Args:
+        args: Parsed argument namespace. Reads: dataset, splits, experiment_name,
+            batch_size, output_every.
+        device: Target device string resolved by main.py.
+    """
     dataset, splits, experiment_name, batch_size, output_every = \
         args.dataset, args.splits, args.experiment_name, args.batch_size, args.output_every
 
     actor, renderer = load_painter(ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH, device)
 
-    # =================== Load the dataset =================== #
     transform = transform_dataset(augmentations=False)
     transform_dict = {split: transform for split in splits}
     loaders = get_loaders(dataset, splits, transform_dict, batch_size)

@@ -8,14 +8,36 @@ torch.manual_seed(42)
 # ===========================================================================#
 # ================================== Actor ==================================#
 # ===========================================================================#
-def conv3x3(in_planes, out_planes, stride=1):
-    return (nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-                      padding=1, bias=False))
+
+def conv3x3(in_planes: int, out_planes: int, stride: int = 1) -> nn.Conv2d:
+    """Creates a 3×3 convolution with padding=1 and no bias.
+
+    Args:
+        in_planes: Number of input channels.
+        out_planes: Number of output channels.
+        stride: Convolution stride.
+
+    Returns:
+        A Conv2d layer with kernel_size=3 and padding=1.
+    """
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+                     padding=1, bias=False)
 
 
-def cfg(depth):
+def cfg(depth: int) -> tuple:
+    """Returns the block type and layer counts for a given ResNet depth.
+
+    Args:
+        depth: ResNet variant depth; must be one of {18, 34, 50, 101, 152}.
+
+    Returns:
+        A tuple (block_class, [num_blocks_per_layer]).
+
+    Raises:
+        AssertionError: If depth is not one of the supported values.
+    """
     depth_lst = [18, 34, 50, 101, 152]
-    assert (depth in depth_lst), \
+    assert depth in depth_lst, \
         "Error : Resnet depth should be either 18, 34, 50, 101, 152"
     cf_dict = {
         '18': (BasicBlock, [2, 2, 2, 2]),
@@ -24,14 +46,27 @@ def cfg(depth):
         '101': (Bottleneck, [3, 4, 23, 3]),
         '152': (Bottleneck, [3, 8, 36, 3]),
     }
-
     return cf_dict[str(depth)]
 
 
 class BasicBlock(nn.Module):
+    """Two-layer residual block used in ResNet-18 and ResNet-34.
+
+    Each block applies two 3×3 convolutions with batch normalisation and a
+    skip connection. A projection shortcut is added when the spatial resolution
+    or channel count changes.
+    """
+
     expansion = 1
 
-    def __init__(self, in_planes, planes, stride=1):
+    def __init__(self, in_planes: int, planes: int, stride: int = 1) -> None:
+        """Builds the two-conv residual block.
+
+        Args:
+            in_planes: Number of input channels.
+            planes: Number of output channels for the two convolutions.
+            stride: Stride applied to the first convolution (and shortcut).
+        """
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(in_planes, planes, stride)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -41,30 +76,51 @@ class BasicBlock(nn.Module):
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
             self.shortcut = nn.Sequential(
-                (nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1,
-                           stride=stride, bias=False)),
+                nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1,
+                          stride=stride, bias=False),
                 nn.BatchNorm2d(self.expansion * planes)
             )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Applies the two-conv block with a residual skip connection.
+
+        Args:
+            x: Input feature map of shape (B, C_in, H, W).
+
+        Returns:
+            Output feature map of shape (B, C_out, H', W').
+        """
         out = F.relu(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
         out += self.shortcut(x)
         out = F.relu(out)
-
         return out
 
 
 class Bottleneck(nn.Module):
+    """Three-layer bottleneck residual block used in ResNet-50 and deeper.
+
+    Applies a 1×1 reduction, a 3×3 convolution, and a 1×1 expansion with a
+    factor-4 channel expansion via the `expansion` class attribute.
+    """
+
     expansion = 4
 
-    def __init__(self, in_planes, planes, stride=1):
+    def __init__(self, in_planes: int, planes: int, stride: int = 1) -> None:
+        """Builds the bottleneck block.
+
+        Args:
+            in_planes: Number of input channels.
+            planes: Number of internal (bottleneck) channels; output channels
+                are planes * expansion.
+            stride: Stride applied to the 3×3 convolution and shortcut.
+        """
         super(Bottleneck, self).__init__()
-        self.conv1 = (nn.Conv2d(in_planes, planes, kernel_size=1, bias=False))
-        self.conv2 = (nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-                                padding=1, bias=False))
-        self.conv3 = (nn.Conv2d(planes, self.expansion * planes, kernel_size=1,
-                                bias=False))
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
+                               padding=1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1,
+                               bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
         self.bn2 = nn.BatchNorm2d(planes)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
@@ -72,23 +128,46 @@ class Bottleneck(nn.Module):
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
             self.shortcut = nn.Sequential(
-                (nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1,
-                           stride=stride, bias=False)),
+                nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1,
+                          stride=stride, bias=False),
             )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Applies the bottleneck block with a residual skip connection.
+
+        Args:
+            x: Input feature map of shape (B, C_in, H, W).
+
+        Returns:
+            Output feature map of shape (B, C_out, H', W').
+        """
         out = F.relu(self.bn1(self.conv1(x)))
         out = F.relu(self.bn2(self.conv2(out)))
         out = self.bn3(self.conv3(out))
         out += self.shortcut(x)
         out = F.relu(out)
-
         return out
 
 
 class ActorResNet(nn.Module):
-    # 65 = 5 (action_bundle) * 13 (stroke parameters)
-    def __init__(self, num_inputs: int = 9, depth: int = 18, num_outputs: int = 65):
+    """ResNet-based actor that predicts stroke parameters from the canvas state.
+
+    Takes a 9-channel input (canvas RGB + target image RGB + step fraction +
+    2D coordinate grid) and outputs 65 values representing 5 stroke action
+    bundles, each with 13 parameters (10 geometry + 3 colour).
+    """
+
+    def __init__(self, num_inputs: int = 9, depth: int = 18,
+                 num_outputs: int = 65) -> None:
+        """Builds the actor ResNet.
+
+        Args:
+            num_inputs: Number of input channels (default 9: canvas + image +
+                step + coords).
+            depth: ResNet depth variant; must be one of {18, 34, 50, 101, 152}.
+            num_outputs: Number of stroke parameters to predict per location
+                (default 65 = 5 bundles × 13 params).
+        """
         super(ActorResNet, self).__init__()
         self.in_planes = 64
 
@@ -102,17 +181,36 @@ class ActorResNet(nn.Module):
         self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
         self.fc = nn.Linear(512 * block.expansion, num_outputs)
 
-    def _make_layer(self, block, planes, num_blocks, stride):
+    def _make_layer(self, block: type, planes: int, num_blocks: int,
+                    stride: int) -> nn.Sequential:
+        """Stacks residual blocks into a single sequential layer.
+
+        Args:
+            block: Block class (BasicBlock or Bottleneck).
+            planes: Number of output channels for this layer.
+            num_blocks: Number of blocks to stack.
+            stride: Stride applied only to the first block.
+
+        Returns:
+            A sequential container of residual blocks.
+        """
         strides = [stride] + [1] * (num_blocks - 1)
         layers = []
-
         for stride in strides:
             layers.append(block(self.in_planes, planes, stride))
             self.in_planes = planes * block.expansion
-
         return nn.Sequential(*layers)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Predicts stroke parameters from the combined canvas and context input.
+
+        Args:
+            x: Input tensor of shape (B, num_inputs, H, W).
+
+        Returns:
+            Stroke parameter tensor of shape (B, num_outputs) with values in
+            [0, 1] after sigmoid activation.
+        """
         x = F.relu(self.bn1(self.conv1(x)))
         x = self.layer1(x)
         x = self.layer2(x)
@@ -128,22 +226,39 @@ class ActorResNet(nn.Module):
 # ============================================================================#
 # ================================= Renderer =================================#
 # ============================================================================#
+
 class RendererFCN(nn.Module):
-    def __init__(self):
+    """Fully-connected neural renderer that rasterises a single stroke.
+
+    Maps 10 geometric stroke parameters to a grayscale alpha mask of size
+    128×128 via a series of FC layers followed by pixel-shuffle upsampling.
+    """
+
+    def __init__(self) -> None:
+        """Builds the renderer with FC layers and pixel-shuffle upsampling."""
         super(RendererFCN, self).__init__()
-        self.fc1 = (nn.Linear(10, 512))
-        self.fc2 = (nn.Linear(512, 1024))
-        self.fc3 = (nn.Linear(1024, 2048))
-        self.fc4 = (nn.Linear(2048, 4096))
-        self.conv1 = (nn.Conv2d(16, 32, 3, 1, 1))
-        self.conv2 = (nn.Conv2d(32, 32, 3, 1, 1))
-        self.conv3 = (nn.Conv2d(8, 16, 3, 1, 1))
-        self.conv4 = (nn.Conv2d(16, 16, 3, 1, 1))
-        self.conv5 = (nn.Conv2d(4, 8, 3, 1, 1))
-        self.conv6 = (nn.Conv2d(8, 4, 3, 1, 1))
+        self.fc1 = nn.Linear(10, 512)
+        self.fc2 = nn.Linear(512, 1024)
+        self.fc3 = nn.Linear(1024, 2048)
+        self.fc4 = nn.Linear(2048, 4096)
+        self.conv1 = nn.Conv2d(16, 32, 3, 1, 1)
+        self.conv2 = nn.Conv2d(32, 32, 3, 1, 1)
+        self.conv3 = nn.Conv2d(8, 16, 3, 1, 1)
+        self.conv4 = nn.Conv2d(16, 16, 3, 1, 1)
+        self.conv5 = nn.Conv2d(4, 8, 3, 1, 1)
+        self.conv6 = nn.Conv2d(8, 4, 3, 1, 1)
         self.pixel_shuffle = nn.PixelShuffle(2)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Renders stroke parameters into a grayscale alpha mask.
+
+        Args:
+            x: Stroke geometry parameters of shape (B, 10).
+
+        Returns:
+            Inverted alpha mask of shape (B, 128, 128) with values in [0, 1],
+            where 0 = full stroke coverage and 1 = no stroke.
+        """
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(x))
@@ -156,5 +271,4 @@ class RendererFCN(nn.Module):
         x = F.relu(self.conv5(x))
         x = self.pixel_shuffle(self.conv6(x))
         x = torch.sigmoid(x)
-
         return 1 - x.view(-1, 128, 128)

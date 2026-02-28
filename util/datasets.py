@@ -11,48 +11,67 @@ from util.consts import RESOURCES_DATASETS_DIR, IMAGENETConsts
 
 
 def load_image(path: str, width: int = 300, height: int = 300) -> np.ndarray:
-    """
-    Loads, resizes, and normalizes an image from a given path.
+    """Loads, resizes, and normalises an image from disk.
 
-    The function opens an image, scales it to a fixed 300x300 resolution,
-    and converts the pixel values from an integer range [0, 255] to a
-    floating-point range [0.0, 1.0].
+    Opens the image at `path`, resizes it to the specified dimensions, and
+    converts pixel values from uint8 [0, 255] to float32 [0.0, 1.0].
 
     Args:
-        path: The file path to the image to be loaded.
-        width: The target width for resizing the image (e.g., 300).
-        height: The target height for resizing the image (e.g., 300).
+        path: Filesystem path to the image file.
+        width: Target width in pixels after resizing.
+        height: Target height in pixels after resizing.
 
     Returns:
-        A 3D float32 array representing the processed image with shape (300, 300, channels).
-
+        Float32 array of shape (height, width, channels) with values in [0, 1].
     """
     img = Image.open(path)
     img = img.resize((width, height))
     img = np.asarray(img)
     img = img / 255.0
     img = img.astype(np.float32)
-
     return img
 
 
 class ImageFolderWithPaths(datasets.ImageFolder):
-    """Custom dataset that includes image file paths. Extends
-    torchvision.datasets.ImageFolder
+    """ImageFolder variant that also returns the file path for each sample.
+
+    Extends the standard torchvision ImageFolder so that each item returned
+    by __getitem__ is a tuple (image_tensor, label, path_string) instead of
+    the usual (image_tensor, label). This is used throughout the codebase to
+    track which files were attacked or painted.
     """
 
-    # override the __getitem__ method. this is the method that dataloader calls
-    def __getitem__(self, index: int):
-        # this is what ImageFolder normally returns
+    def __getitem__(self, index: int) -> tuple:
+        """Returns the image, label, and file path for the given index.
+
+        Args:
+            index: Sample index within the dataset.
+
+        Returns:
+            Tuple of (image_tensor, label_int, file_path_str).
+        """
         original_tuple = super(ImageFolderWithPaths, self).__getitem__(index)
-        # the image file path
         path = self.imgs[index][0]
-        # make a new tuple that includes original and the path
         tuple_with_path = (original_tuple + (path,))
         return tuple_with_path
 
 
-def transform_dataset(augmentations: bool, dataset_type: str):
+def transform_dataset(augmentations: bool, dataset_type: str = 'imagenet') -> transforms.Compose:
+    """Builds a torchvision transform pipeline for the given dataset type.
+
+    For training splits, random crop, flip, and (for ImageNet) rotation
+    augmentations are prepended. All splits end with ToTensor and ImageNet
+    normalisation (mean/std from IMAGENETConsts).
+
+    Args:
+        augmentations: If True, include data-augmentation transforms before
+            normalisation.
+        dataset_type: Dataset family; 'imagenet' or 'cifar10'. Determines
+            which augmentation operations are applied.
+
+    Returns:
+        A composed transform ready to pass to ImageFolderWithPaths.
+    """
     composition = []
     if augmentations:
         if dataset_type == "imagenet":
@@ -76,31 +95,50 @@ def transform_dataset(augmentations: bool, dataset_type: str):
 
 
 def create_ds_loader(path: str, transform: transforms.Compose,
-                     batch_size: int, shuffle: bool = True, num_workers: int = os.cpu_count() - 1):
+                     batch_size: int, shuffle: bool = True,
+                     num_workers: int = os.cpu_count() - 1) -> tuple:
+    """Creates an ImageFolderWithPaths dataset and a DataLoader for it.
+
+    Args:
+        path: Root directory of the dataset split (expects class subdirectories).
+        transform: Composed transform applied to each image.
+        batch_size: Number of samples per mini-batch.
+        shuffle: Whether to shuffle the dataset each epoch.
+        num_workers: Number of worker processes for data loading.
+
+    Returns:
+        Tuple of (dataset, dataloader) where dataset is an
+        ImageFolderWithPaths and dataloader is a torch DataLoader.
+    """
     ds = ImageFolderWithPaths(path, transform=transform)
     loader = torch.utils.data.DataLoader(ds, batch_size=batch_size, shuffle=shuffle,
                                          num_workers=num_workers, pin_memory=True)
     return ds, loader
 
 
-def get_loaders(dataset: str, splits: Union[list, str], transform_dict: dict[str, transforms.Compose], batch_size: int):
-    """
-    Args:
-        dataset: Name of the dataset directory.
-        splits: A tuple/list of strings like ('train', 'val', 'test').
-        transform_dict: Transform for training/augmentation.
-        batch_size: Number of samples per batch.
+def get_loaders(dataset: str, splits: Union[list, str],
+                transform_dict: dict, batch_size: int) -> dict:
+    """Builds a DataLoader for each requested dataset split.
 
+    Resolves the dataset directory from RESOURCES_DATASETS_DIR and creates one
+    loader per split using the transform specified in `transform_dict`.
+
+    Args:
+        dataset: Name of the dataset directory inside RESOURCES_DATASETS_DIR.
+        splits: List of split names to load (e.g. ['train', 'val', 'test']).
+        transform_dict: Mapping from split name to its torchvision transform.
+        batch_size: Number of samples per mini-batch.
+
+    Returns:
+        Dictionary mapping each split name to [dataset, dataloader].
     """
     ds_local_dir = os.path.join(RESOURCES_DATASETS_DIR, dataset)
     loaders = {}
 
     for split in splits:
         path = os.path.join(ds_local_dir, split)
-
-        ds, loader = create_ds_loader(path=path, transform=transform_dict[split], batch_size=batch_size,
-                                      num_workers=4)
-
+        ds, loader = create_ds_loader(path=path, transform=transform_dict[split],
+                                      batch_size=batch_size, num_workers=4)
         loaders[split] = [ds, loader]
         print(f'{split} batches {len(loader)} size {len(ds)}')
 
@@ -108,10 +146,23 @@ def get_loaders(dataset: str, splits: Union[list, str], transform_dict: dict[str
 
 
 def concat_to_one_decisioner_dataset(ds_local_dir: str) -> pd.DataFrame:
+    """Concatenates all PCL attack CSV files in a directory into one DataFrame.
+
+    Reads every CSV in `ds_local_dir`, filters rows where attacked_model is
+    'pcl' (the only rows relevant for decisioner training), and returns the
+    combined result.
+
+    Args:
+        ds_local_dir: Path to the directory containing per-epsilon attack CSV
+            files produced by the attack_pcl experiment.
+
+    Returns:
+        Concatenated DataFrame of all PCL attack records.
+    """
     df_dataset = pd.DataFrame()
     for file_name in os.listdir(ds_local_dir):
         file_path = os.path.join(ds_local_dir, file_name)
         df = pd.read_csv(file_path)
-        df = df[df['attacked_model'] == 'pcl']  # only those records are relevant
+        df = df[df['attacked_model'] == 'pcl']
         df_dataset = pd.concat([df_dataset, df], axis=0, ignore_index=True)
     return df_dataset

@@ -1,16 +1,19 @@
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
 from imagenet_stubs.imagenet_2012_labels import IMAGENET_2012_LABELS
+
+load_dotenv()
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 NUM_OF_HYPHENS = 50
 RESOURCES_DIR = os.getenv("RESOURCES_DIR")
 RESOURCES_DATASETS_DIR = os.getenv("RESOURCES_DATASETS_DIR")
-RESOURCES_RESULTS_DIR = os.getenv("RESOURCES_DATASETS_DIR")
-RESOURCES_MODELS_DIR = os.getenv("RESOURCES_DATASETS_DIR")
-ACTOR_WEIGHTS_PATH = os.getenv("RESOURCES_DATASETS_DIR")
-RENDERER_WEIGHTS_PATH = os.getenv("RESOURCES_DATASETS_DIR")
+RESOURCES_RESULTS_DIR = os.getenv("RESOURCES_RESULTS_DIR")
+RESOURCES_MODELS_DIR = os.getenv("RESOURCES_MODELS_DIR")
+ACTOR_WEIGHTS_PATH = os.getenv("ACTOR_WEIGHTS_PATH")
+RENDERER_WEIGHTS_PATH = os.getenv("RENDERER_WEIGHTS_PATH")
 
 class IMAGENETConsts:
     SHAPE = 224
