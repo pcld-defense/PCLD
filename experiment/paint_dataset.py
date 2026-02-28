@@ -5,8 +5,8 @@ import glob
 from tqdm import tqdm
 from torchvision.utils import save_image
 
-from model.painter_utils import load_painter, paint_images
-from util.consts import RESOURCES_DATASETS_DIR, NUM_OF_HYPHENS, ACTOR_PATH, RENDERER_PATH
+from painter.painter_utils import load_painter, paint_images
+from util.consts import RESOURCES_DATASETS_DIR, NUM_OF_HYPHENS, ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH
 from util.datasets import transform_dataset, get_loaders
 
 
@@ -63,7 +63,7 @@ def main_paint_dataset(args, device):
     dataset, splits, experiment_name, batch_size, output_every = \
         args.dataset, args.splits, args.experiment_name, args.batch_size, args.output_every
 
-    actor, renderer = load_painter(ACTOR_PATH, RENDERER_PATH, device)
+    actor, renderer = load_painter(ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH, device)
 
     # =================== Load the dataset =================== #
     transform = transform_dataset(augmentations=False)
