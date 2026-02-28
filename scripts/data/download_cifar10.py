@@ -3,13 +3,13 @@ import os
 from tqdm import tqdm
 from huggingface_hub import login
 from datasets import load_dataset
-from PIL import Image
-from dotenv import load_dotenv
+
+from util.consts import RESOURCES_DATASETS_DIR
 
 hf_token = os.getenv("HF_TOKEN")
 login(hf_token)
 ds = load_dataset("uoft-cs/cifar10", split="train", trust_remote_code=True)
-output_dir = "/home/idanbib/PCLD/data/cifar10/train"
+output_dir = os.path.join(RESOURCES_DATASETS_DIR, "cifar10", "train")
 
 class_names = ds.features["label"].names
 

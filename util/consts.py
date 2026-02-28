@@ -1,21 +1,23 @@
 import os
+from pathlib import Path
 
 from imagenet_stubs.imagenet_2012_labels import IMAGENET_2012_LABELS
 
+ROOT_DIR = Path(__file__).resolve().parent.parent
 NUM_OF_HYPHENS = 50
-RESOURCES_DIR = r"/home/idanbib/PCLD/code/resources/"
-RESOURCES_DATASETS_DIR = r"/home/idanbib/PCLD/data/"
-RESOURCES_RESULTS_DIR = r"/home/idanbib/PCLD/results"
-RESOURCES_MODELS_DIR = r"/home/idanbib/PCLD/models"
-
-ACTOR_PATH = r'/home/idanbib/PCLD/code/resources/models/painter_actor/actor.pkl'
-RENDERER_PATH = r'/home/idanbib/PCLD/code/resources/models/painter_renderer/renderer.pkl'
+RESOURCES_DIR = os.getenv("RESOURCES_DIR")
+RESOURCES_DATASETS_DIR = os.getenv("RESOURCES_DATASETS_DIR")
+RESOURCES_RESULTS_DIR = os.getenv("RESOURCES_DATASETS_DIR")
+RESOURCES_MODELS_DIR = os.getenv("RESOURCES_DATASETS_DIR")
+ACTOR_WEIGHTS_PATH = os.getenv("RESOURCES_DATASETS_DIR")
+RENDERER_WEIGHTS_PATH = os.getenv("RESOURCES_DATASETS_DIR")
 
 class IMAGENETConsts:
     SHAPE = 224
     NUM_CLASSES = 1000
     MEAN = [0.485, 0.456, 0.406]
     STD = [0.229, 0.224, 0.225]
+    IMAGENET_MAPPING = IMAGENET_2012_LABELS
 
 class CIFAR10Consts:
     CIFAR10_MAPPING = {

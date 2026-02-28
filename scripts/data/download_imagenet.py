@@ -3,18 +3,17 @@ import os
 from huggingface_hub import login
 from datasets import load_dataset
 from PIL import Image
-from dotenv import load_dotenv
 
-from util.consts import IMAGENETConsts
+from util.consts import IMAGENETConsts, RESOURCES_DATASETS_DIR
 
 hf_token = os.getenv("HF_TOKEN")
 login(hf_token)
 ds = load_dataset("imagenet-1k", split="train", streaming=True, trust_remote_code=True)
 
-images_per_class = 200
+images_per_class = 100
 total_classes = 1000
 target_total = images_per_class * total_classes
-output_dir = "/home/idanbib/PCLD/data/imagenet/train"
+output_dir = os.path.join(RESOURCES_DATASETS_DIR, "imagenet", "train")
 
 counts = {i: 0 for i in range(total_classes)}
 total_saved = 0
