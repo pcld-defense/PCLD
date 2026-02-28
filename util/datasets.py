@@ -1,7 +1,6 @@
 import os
 from typing import Union
 
-import torchvision
 from PIL import Image
 import numpy as np
 import pandas as pd
@@ -11,7 +10,7 @@ from torchvision import datasets, transforms
 from util.consts import RESOURCES_DATASETS_DIR, IMAGENETConsts
 
 
-def load_image(path: str) -> np.ndarray:
+def load_image(path: str, width: int = 300, height: int = 300) -> np.ndarray:
     """
     Loads, resizes, and normalizes an image from a given path.
 
@@ -21,13 +20,15 @@ def load_image(path: str) -> np.ndarray:
 
     Args:
         path: The file path to the image to be loaded.
+        width: The target width for resizing the image (e.g., 300).
+        height: The target height for resizing the image (e.g., 300).
 
     Returns:
         A 3D float32 array representing the processed image with shape (300, 300, channels).
 
     """
     img = Image.open(path)
-    img = img.resize((300, 300))
+    img = img.resize((width, height))
     img = np.asarray(img)
     img = img / 255.0
     img = img.astype(np.float32)
