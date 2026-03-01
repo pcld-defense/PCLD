@@ -25,6 +25,7 @@ datasets
 opencv-python==4.10.0.82
 
 robustbench==1.1.1
+timm>=0.9.0 # XCiT-M12 (xcit_medium_12_p16_224)
 git+https://github.com/fra31/auto-attack # autoattack
 git+https://github.com/nottombrown/imagenet_stubs # imagenet_stubs
 

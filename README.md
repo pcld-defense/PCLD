@@ -80,3 +80,84 @@ $ python --experiment_type attack_pcld --experiment_suff pgd10_targeted --datase
 ```
 It will create a folder (named: "attack_pcld_pgd10_targeted") inside the [models folder](resources%2Fmodels).
 
+
+
+## Adding a New Classifier Architecture
+
+Classifier architectures are defined in a central registry in
+[`model/consts.py`](model/consts.py).  Adding a new model requires editing
+**one file** in the common case, and **two files** when introducing a library
+that is not yet supported.
+
+---
+
+### Step 1 — Register the model in `model/consts.py`
+
+Open `model/consts.py` and add an entry to `CLASSIFIER_REGISTRY`.
+
+**Example — new Wide ResNet variant (no code change needed):**
+```python
+'wrn-28-10': ClassifierConfig(
+    family='wrn',
+    optimizer='sgd',
+    weight_decay_imagenet=1e-4,
+    weight_decay_cifar10=5e-4,
+    wrn_depth=28,
+    wrn_width=10,
+),
+```
+
+**Example — new timm model (no code change needed):**
+```python
+'vit-b16': ClassifierConfig(
+    family='timm',
+    optimizer='adamw',
+    weight_decay_imagenet=0.05,
+    weight_decay_cifar10=0.05,
+    timm_name='vit_base_patch16_224',   # any timm model identifier
+    timm_pretrained=True,               # load hub weights when no checkpoint given
+),
+```
+
+Built-in `family` values and what each field controls:
+
+| `family` | Required fields | Optional fields |
+|----------|----------------|-----------------|
+| `'wrn'`  | `wrn_depth`, `wrn_width` | — |
+| `'timm'` | `timm_name` | `timm_pretrained` (default `False`) |
+
+`optimizer` must be `'sgd'` or `'adamw'`.
+`weight_decay_imagenet` / `weight_decay_cifar10` are used automatically by
+`get_net_and_optim`.
+
+---
+
+### Step 2 (new families only) — Add a build branch in `model/classifier.py`
+
+If your architecture does not come from robustbench or timm, add an
+`if cfg.family == ...` branch inside `_build_model()`:
+
+```python
+if cfg.family == 'my-library':
+    from my_library import MyModel
+    return MyModel(num_classes=n_classes)
+```
+
+If the new family needs a custom optimizer, add a matching branch in
+`_build_optimizer()` as well.
+
+---
+
+### Step 3 — Use it
+
+Pass `--model_type <your-key>` on the CLI:
+
+```
+$ python main.py --experiment_type train_classifier \
+    --model_type vit-b16 \
+    --dataset_type imagenet \
+    ...
+```
+
+No other files need to change.
+

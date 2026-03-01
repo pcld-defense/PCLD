@@ -2,7 +2,7 @@ import argparse
 import os
 import pandas as pd
 
-from model.pretrained_net import get_net_and_optim
+from model.classifier import get_net_and_optim
 from util.consts import RESOURCES_RESULTS_DIR
 from util.datasets import transform_dataset, get_loaders
 from util.evaluations import plot_loss_and_acc
@@ -32,7 +32,8 @@ def main_train_classifier(args: argparse.Namespace, device: str) -> None:
          args.lr, args.patience, args.batch_size, args.max_epochs)
 
     train_transform = transform_dataset(augmentations=True, dataset_type=dataset_type)
-    val_transform = transform_dataset(augmentations=False, dataset_type=dataset_type)
+    val_transform = transform_dataset(augmentations=False, dataset_type=dataset_type,
+                                      preprocessing=args.preprocessing)
     transform_dict = {"train": train_transform, "val": val_transform}
 
     loaders = get_loaders(dataset, splits, transform_dict, batch_size)
@@ -54,14 +55,14 @@ def main_train_classifier(args: argparse.Namespace, device: str) -> None:
         print(f'train_validate: start epoch {epoch}')
         results_df = process_epoch_clf(experiment=experiment_name, device=device, epoch=epoch, net=net,
                                        loader=loaders['train'][1], loader_name='train',
-                                       n_batches=len(loaders['train'][1]), criterion=criterion,
-                                       optimizer=optimizer, results_df=results_df, n_classes=n_classes,
+                                       criterion=criterion, optimizer=optimizer,
+                                       results_df=results_df, n_classes=n_classes,
                                        classes=classes, is_train=True, phase='train', save_model=True,
                                        scheduler=scheduler)
         results_df = process_epoch_clf(experiment=experiment_name, device=device, epoch=epoch, net=net,
                                        loader=loaders['val'][1], loader_name='val',
-                                       n_batches=len(loaders['val'][1]), criterion=criterion,
-                                       optimizer=optimizer, results_df=results_df, n_classes=n_classes,
+                                       criterion=criterion, optimizer=optimizer,
+                                       results_df=results_df, n_classes=n_classes,
                                        classes=classes, is_train=False, phase='validation', save_model=False)
 
         current_val_loss = results_df[results_df['ds_type'] == 'validation']['avg_loss'].iloc[-1]
