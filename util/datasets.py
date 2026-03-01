@@ -1,5 +1,5 @@
 import os
-from typing import Optional
+from typing import Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -140,7 +140,7 @@ def get_loaders(dataset: str, splits: Union[list, str],
 
 
 def load_decisioner_dataset(results_dir: str,
-                            attacked_model: str | None = 'adaptive') -> pd.DataFrame:
+                            attacked_model: Union[str, None] = 'adaptive') -> pd.DataFrame:
     """Loads and concatenates all attacker Parquet files from a results directory.
 
     Reads every `*_results.parquet` file written by `attacker()`, concatenates
