@@ -1,14 +1,13 @@
 import argparse
 import os
 
-import pandas as pd
 import torch
 
 from model.model_utils import load_painter_surrogate
 from painter.painter_surrogate import IdentitySurrogate_, PainterSurrogate
 from painter.painter_utils import load_painter, paint_images
 from model.pcld_bpda import BPDAPainter, PCL
-from model.pretrained_net import get_net
+from model.classifier import get_net
 from util.attacks import attacker
 from util.consts import NUM_OF_HYPHENS, RESOURCES_RESULTS_DIR, RESOURCES_MODELS_DIR, \
     ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH
@@ -45,8 +44,10 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
          args.output_every, args.classifier_experiment, args.attack, args.attack_direction, args.attack_nb_iter,
          args.run_naive_attack, args.epsilons)
 
-    train_transform = transform_dataset(augmentations=False, dataset_type=dataset_type)
-    val_transform = transform_dataset(augmentations=False, dataset_type=dataset_type)
+    train_transform = transform_dataset(dataset_type=dataset_type,
+                                        preprocessing=args.preprocessing)
+    val_transform = transform_dataset(dataset_type=dataset_type,
+                                      preprocessing=args.preprocessing)
     transform_dict = {"train": train_transform, "val": val_transform}
 
     loaders = get_loaders(dataset, splits, transform_dict, batch_size)
@@ -84,19 +85,12 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
     attack_direction_bool = attack_direction == 'targeted'
     for epsilon in args.epsilons:
         print(f'attack with epsilon {epsilon}/255...')
-        results_local_path = os.path.join(results_local_dir, f'{epsilon}_results.csv')
-        res_train = attacker(experiment_name, dataset, attack, pcl, clf, run_naive_attack,
-                             loaders['train'][1], 'train', epsilon, attack_direction_bool,
-                             output_every, classes=classes, attack_nb_iter=attack_nb_iter,
-                             device=device, output_type='paints_inference')
-
-        break
-        res_val = attacker(experiment_name, dataset, attack, pcl, clf, run_naive_attack,
-                           loaders['val'][1], 'val', epsilon, attack_direction_bool,
-                           output_every, classes=classes, attack_nb_iter=attack_nb_iter,
-                           device=device, output_type='paints_inference')
-
-        res_epsilon = pd.concat([res_train, res_val], ignore_index=True, axis=0)
-        print(f'save results...')
-        res_epsilon.to_csv(results_local_path, index=False)
+        attacker(experiment_name, dataset, attack, pcl, clf, run_naive_attack,
+                 loaders['train'][1], 'train', epsilon, attack_direction_bool,
+                 output_every, classes=classes, attack_nb_iter=attack_nb_iter,
+                 device=device, output_dir=results_local_dir, output_type='paints_inference')
+        attacker(experiment_name, dataset, attack, pcl, clf, run_naive_attack,
+                 loaders['val'][1], 'val', epsilon, attack_direction_bool,
+                 output_every, classes=classes, attack_nb_iter=attack_nb_iter,
+                 device=device, output_dir=results_local_dir, output_type='paints_inference')
         print(f'finished attack with epsilon {epsilon}/255!')

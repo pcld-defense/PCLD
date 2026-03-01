@@ -101,7 +101,8 @@ def main_paint_dataset(args: argparse.Namespace, device: str) -> None:
 
     actor, renderer = load_painter(ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH, device)
 
-    transform = transform_dataset(augmentations=False)
+    transform = transform_dataset(dataset_type=args.dataset_type,
+                                  preprocessing=args.preprocessing)
     transform_dict = {split: transform for split in splits}
     loaders = get_loaders(dataset, splits, transform_dict, batch_size)
 

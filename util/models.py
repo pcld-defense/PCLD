@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 
 import numpy as np
 import torch.optim as optim
@@ -92,10 +93,27 @@ def get_best_epoch(res_df: pd.DataFrame, epoch: int) -> tuple:
     return best_epoch, best_loss, best_acc
 
 
+def _update_class_stats(class_correct: list, class_total: list,
+                        pred: torch.Tensor, labels: torch.Tensor) -> None:
+    """Accumulates per-class correct-prediction and sample counts in-place.
+
+    Args:
+        class_correct: Running correct-prediction counts per class.
+        class_total: Running sample counts per class.
+        pred: Predicted class indices of shape (B,).
+        labels: Ground-truth class indices of shape (B,).
+    """
+    correct = pred.eq(labels).cpu()
+    for label, c in zip(labels.cpu().tolist(), correct.tolist()):
+        class_correct[label] += int(c)
+        class_total[label] += 1
+
+
 def process_epoch_clf(experiment: str, device: str, epoch: int,
                       net: torch.nn.Module, loader: torch.utils.data.DataLoader,
-                      loader_name: str, n_batches: int,
-                      criterion: torch.nn.Module, optimizer: torch.optim.Optimizer,
+                      loader_name: str,
+                      criterion: torch.nn.Module,
+                      optimizer: Optional[torch.optim.Optimizer],
                       results_df: pd.DataFrame, n_classes: int, classes: list[str],
                       is_train: bool = True, phase: str = 'train',
                       save_model: bool = True,
@@ -115,9 +133,9 @@ def process_epoch_clf(experiment: str, device: str, epoch: int,
         net: The classifier model.
         loader: DataLoader yielding (inputs, labels) or (inputs, labels, paths).
         loader_name: Human-readable split name used in log messages.
-        n_batches: Total number of batches (used as the loss denominator).
         criterion: Classification loss function.
-        optimizer: Optimiser (updated only when is_train=True).
+        optimizer: Optimiser updated when is_train=True; may be None when
+            is_train=False since it is never accessed during eval.
         results_df: Existing results DataFrame to append to.
         n_classes: Number of output classes.
         classes: Sorted list of class name strings.
@@ -134,40 +152,30 @@ def process_epoch_clf(experiment: str, device: str, epoch: int,
         Updated results DataFrame with the current epoch metrics appended.
     """
     total_loss = 0.0
+    class_correct = [0] * n_classes
+    class_total = [0] * n_classes
 
-    if is_train:
-        net.train()
-    else:
-        net.eval()
+    net.train() if is_train else net.eval()
 
-    class_correct = list(0. for _ in range(n_classes))
-    class_total = list(0. for _ in range(n_classes))
+    ctx = torch.enable_grad() if is_train else torch.no_grad()
+    with ctx:
+        for data in loader:
+            inputs = data[0].to(device, non_blocking=True)
+            labels = data[1].to(device, non_blocking=True)
 
-    for i, data in enumerate(loader, 0):
-        inputs, labels = data[0].to(device), data[1].to(device)
+            if is_train:
+                optimizer.zero_grad()
 
-        if 'cuda' in device:
-            inputs, labels = inputs.cuda(non_blocking=True), labels.cuda(non_blocking=True)
+            outputs = net(inputs)
+            loss = criterion(outputs, labels)
 
-        optimizer.zero_grad()
-        outputs = net(inputs)
-        loss = criterion(outputs, labels)
+            if is_train:
+                loss.backward()
+                optimizer.step()
 
-        if is_train:
-            loss.backward()
-            optimizer.step()
-
-        total_loss += loss.item()
-        _, pred = torch.max(outputs, 1)
-
-        # compare predictions to true label
-        correct_tensor = pred.eq(labels.data.view_as(pred))
-        correct = correct_tensor.numpy() if device == 'cpu' else correct_tensor.cpu().numpy()
-
-        for j in range(len(labels.data)):
-            label = labels.data[j]
-            class_correct[label] += correct[j].item()
-            class_total[label] += 1
+            total_loss += loss.item()
+            _, pred = torch.max(outputs, 1)
+            _update_class_stats(class_correct, class_total, pred, labels)
 
     if is_train and scheduler:
         scheduler.step()
@@ -179,40 +187,33 @@ def process_epoch_clf(experiment: str, device: str, epoch: int,
                                 loss=total_loss,
                                 epoch=epoch,
                                 ds_type=phase,
-                                dataset_size=n_batches,
+                                dataset_size=len(loader),
                                 loader_name=loader_name,
                                 n_classes=n_classes,
-                                classes=classes
-                                )
+                                classes=classes)
 
     if save_model:
-        # remove all prev models in this dir
         save_dir = os.path.join(RESOURCES_MODELS_DIR, experiment)
         os.makedirs(save_dir, exist_ok=True)
-        # [os.remove(os.path.join(save_dir, d)) for d in os.listdir(save_dir)]
-        # save the updated model
-        save_path = f'{save_dir}/model.pth'
-        torch.save(net.state_dict(), save_path)
+        torch.save(net.state_dict(), f'{save_dir}/model.pth')
 
     return results_df
 
 
 def prepare_torch_ds_decisioner(df: pd.DataFrame, p_steps: int,
-                                prob_cols: list[str], target_col: str,
-                                architecture: str, epsilons_weights: dict,
-                                device: str) -> tuple:
+                                target_col: str, architecture: str,
+                                epsilons_weights: dict, device: str) -> tuple:
     """Converts a decisioner results DataFrame into tensors for PyTorch training.
 
     Groups rows by unique (experiment, targeted, image, attack, epsilon) tuples
-    to assign a sample index, stacks the probability columns into an input
+    to assign a sample index, stacks the `probs` array column into an input
     tensor shaped for either 1D-conv or FC architecture, and computes per-sample
     epsilon weights.
 
     Args:
         df: DataFrame with one row per (image × paint step × attack). Must
-            contain `prob_cols`, the grouping columns, and `target_col`.
+            contain a `probs` list column, the grouping columns, and `target_col`.
         p_steps: Number of paint steps (temporal sequence length).
-        prob_cols: Column names containing per-class softmax probabilities.
         target_col: Name of the column holding the ground-truth class index.
         architecture: 'conv' to keep (B, p_steps, n_classes) shape, 'fc' to
             flatten to (B, p_steps * n_classes).
@@ -233,11 +234,12 @@ def prepare_torch_ds_decisioner(df: pd.DataFrame, p_steps: int,
     df['idx'] = df[bys].astype(str).agg('-'.join, axis=1)
     df['sample_idx'], _ = pd.factorize(df['idx'])
     df.drop('idx', axis=1, inplace=True)
-    x = torch.tensor(df[prob_cols].values, device=device, dtype=torch.float32)
+    x = torch.tensor(np.stack(df['probs'].values), device=device, dtype=torch.float32)
+    n_classes = x.shape[-1]
     if architecture == 'conv':
-        x = x.view(-1, p_steps, len(prob_cols))
+        x = x.view(-1, p_steps, n_classes)
     else:  # fc
-        x = x.reshape(-1, p_steps * len(prob_cols))
+        x = x.reshape(-1, p_steps * n_classes)
     df_target = df.groupby('sample_idx')[target_col].max().reset_index()
     y = torch.tensor(df_target[target_col].values, device=device,
                      dtype=torch.long)
@@ -339,8 +341,7 @@ def trainer_decisioner(decisioner_architechture: str, batch_size: int,
                        max_epochs: int, find_best_epoch: int,
                        df_train: pd.DataFrame, df_val: pd.DataFrame,
                        df_train_full: pd.DataFrame, df_test: pd.DataFrame,
-                       paint_steps: int, prob_cols: list[str],
-                       epsilons_weights: dict, n_classes: int,
+                       paint_steps: int, epsilons_weights: dict, n_classes: int,
                        names_classes: list[str], epsilons: list[int],
                        device: str) -> tuple:
     """Full decisioner training pipeline with optional early-stopping epoch search.
@@ -363,7 +364,6 @@ def trainer_decisioner(decisioner_architechture: str, batch_size: int,
         df_train_full: Combined train + val DataFrame used in Phase 2.
         df_test: Test split DataFrame.
         paint_steps: Number of paint steps (temporal sequence length).
-        prob_cols: Column names for per-class softmax probabilities.
         epsilons_weights: Dict mapping epsilon → sample weight for weighted loss.
         n_classes: Number of output classes.
         names_classes: Sorted list of class name strings.
@@ -384,16 +384,16 @@ def trainer_decisioner(decisioner_architechture: str, batch_size: int,
     df_test = df_test.sort_values(by=bys)
 
     x_train, y_train, indices_train, epsilons_train, sample_weights_train, df_train = \
-        prepare_torch_ds_decisioner(df_train, paint_steps, prob_cols, 'actual',
+        prepare_torch_ds_decisioner(df_train, paint_steps, 'actual',
                                     decisioner_architechture, epsilons_weights, device)
     x_val, y_val, indices_val, epsilons_val, sample_weights_val, df_val = \
-        prepare_torch_ds_decisioner(df_val, paint_steps, prob_cols, 'actual',
+        prepare_torch_ds_decisioner(df_val, paint_steps, 'actual',
                                     decisioner_architechture, epsilons_weights, device)
     x_train_full, y_train_full, indices_train_full, epsilons_train_full, sample_weights_train_full, df_train_full = \
-        prepare_torch_ds_decisioner(df_train_full, paint_steps, prob_cols, 'actual',
+        prepare_torch_ds_decisioner(df_train_full, paint_steps, 'actual',
                                     decisioner_architechture, epsilons_weights, device)
     x_test, y_test, indices_test, epsilons_test, sample_weights_test, df_test = \
-        prepare_torch_ds_decisioner(df_test, paint_steps, prob_cols, 'actual',
+        prepare_torch_ds_decisioner(df_test, paint_steps, 'actual',
                                     decisioner_architechture, epsilons_weights, device)
 
     train_dataset = TensorDataset(x_train, y_train, indices_train, epsilons_train, sample_weights_train)

@@ -2,7 +2,10 @@ import os
 import random
 import re
 from collections import defaultdict
+from typing import Optional
 
+import numpy as np
+import pandas as pd
 import torch
 from PIL import Image
 from matplotlib import pyplot as plt
@@ -121,3 +124,122 @@ def plot_painter_results(canvases: torch.Tensor, output_every: list[int]) -> Non
 
     plt.tight_layout()
     plt.show()
+
+
+def plot_softmax_trajectories(
+        parquet_path: str,
+        image: Optional[str] = None,
+        epsilon: Optional[int] = None,
+        attacked_model: str = 'adaptive',
+        phase: str = 'val',
+        top_k: int = 5,
+        n_images: int = 1,
+        class_names: Optional[list] = None,
+        figsize: Optional[tuple] = None,
+) -> plt.Figure:
+    """Opens an attack parquet and plots per-class softmax trajectories across paint steps.
+
+    Each row of the parquet (from ``paints_inference`` mode) represents one
+    (image × paint-step) observation. This function groups rows by image,
+    stacks the per-step softmax vectors, and plots the top-k class confidence
+    curves against the stroke-count checkpoint axis.
+
+    Args:
+        parquet_path: Path to the parquet file produced by ``attacker()`` with
+            ``output_type='paints_inference'``.
+        image: Image name (basename without extension) to plot. If None, the
+            first ``n_images`` images in the filtered data are used.
+        epsilon: Epsilon filter (integer pixel-space budget). If None, all
+            epsilon values present in the file are included.
+        attacked_model: Row filter on the ``attacked_model`` column; typically
+            ``'adaptive'`` or ``'naive'``.
+        phase: Dataset split to filter on (``'train'`` or ``'val'``).
+        top_k: Number of top classes to plot per image, ranked by their peak
+            probability across all paint steps.
+        n_images: Number of images to plot when ``image`` is None.
+        class_names: Ordered list of class name strings aligned with the class
+            index used during the attack. When provided, class indices are
+            mapped to names in the legend; otherwise the true/predicted class
+            names stored in the parquet are used for those positions and all
+            other classes are labelled ``'class {idx}'``.
+        figsize: Matplotlib figure size ``(width, height)``. Defaults to
+            ``(10 * n_images, 5)``.
+
+    Returns:
+        The matplotlib Figure containing one subplot per selected image.
+
+    Raises:
+        ValueError: If no rows remain after applying the requested filters.
+    """
+    df = pd.read_parquet(parquet_path)
+
+    mask = (df['attacked_model'] == attacked_model) & (df['phase'] == phase)
+    if epsilon is not None:
+        mask &= df['epsilon'] == epsilon
+    df = df[mask].copy()
+
+    if df.empty:
+        raise ValueError(
+            f'No rows after filtering: attacked_model={attacked_model!r}, '
+            f'phase={phase!r}, epsilon={epsilon}'
+        )
+
+    available_images = df['image'].unique().tolist()
+    images_to_plot = [image] if image is not None else available_images[:n_images]
+    n = len(images_to_plot)
+
+    if figsize is None:
+        figsize = (10 * n, 5)
+
+    fig, axes = plt.subplots(1, n, figsize=figsize, squeeze=False)
+
+    for col, img_name in enumerate(images_to_plot):
+        ax = axes[0, col]
+        img_df = df[df['image'] == img_name].sort_values('t').reset_index(drop=True)
+
+        if img_df.empty:
+            ax.set_title(f'{img_name}: no data')
+            continue
+
+        t_values = img_df['t'].tolist()
+        x_labels = ['orig' if t == 999999 else str(t) for t in t_values]
+        x_pos = list(range(len(t_values)))
+
+        # Shape: (steps, n_classes)
+        probs_matrix = np.array(img_df['probs'].tolist())
+
+        top_k_indices = np.argsort(probs_matrix.max(axis=0))[::-1][:top_k]
+
+        actual_idx = int(img_df['actual'].iloc[0])
+        actual_class_name = img_df['actual_class'].iloc[0]
+        final_pred_class = img_df['pred_class'].iloc[-1]
+
+        def _class_label(idx: int) -> str:
+            if class_names is not None and idx < len(class_names):
+                name = class_names[idx]
+            elif idx == actual_idx:
+                name = actual_class_name
+            else:
+                name = f'class {idx}'
+            return f'{name} (true)' if idx == actual_idx else name
+
+        for class_idx in top_k_indices:
+            ax.plot(x_pos, probs_matrix[:, int(class_idx)],
+                    label=_class_label(int(class_idx)),
+                    linewidth=2, marker='o', markersize=4)
+
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels(x_labels, rotation=45, ha='right', fontsize=8)
+        ax.set_xlabel('Paint step (t)')
+        ax.set_ylabel('Softmax probability')
+        eps_val = img_df['epsilon'].iloc[0]
+        ax.set_title(
+            f'{img_name}  |  {attacked_model} attack  |  ε={eps_val}\n'
+            f'true: {actual_class_name}  →  final pred: {final_pred_class}'
+        )
+        ax.legend(loc='upper right', fontsize=8, framealpha=0.8)
+        ax.set_ylim(0, 1)
+        ax.grid(True, alpha=0.3)
+
+    fig.tight_layout()
+    return fig
