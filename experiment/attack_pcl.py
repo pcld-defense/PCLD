@@ -3,11 +3,10 @@ import os
 
 import torch
 
-from model.model_utils import load_painter_surrogate
-from painter.painter_surrogate import IdentitySurrogate_, PainterSurrogate
-from painter.painter_utils import load_painter, paint_images
-from model.pcld_bpda import BPDAPainter, PCL
 from model.classifier import get_net
+from model.pcld_bpda import BPDAPainter, PCL
+from painter.painter_surrogate import IdentitySurrogate_, PainterSurrogate, load_painter_surrogate
+from painter.painter_utils import load_painter, paint_images
 from util.attacks import attacker
 from util.consts import NUM_OF_HYPHENS, RESOURCES_RESULTS_DIR, RESOURCES_MODELS_DIR, \
     ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH

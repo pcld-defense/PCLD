@@ -1,14 +1,12 @@
 import argparse
 import os
 
-import pandas as pd
 import torch
 from torchvision import models
 import torch.nn as nn
 
 from model.decisioner import Decisioner1DConv, DecisionerFC
-from model.model_utils import load_painter_surrogate
-from painter.painter_surrogate import IdentitySurrogate_, PainterSurrogate
+from painter.painter_surrogate import IdentitySurrogate_, PainterSurrogate, load_painter_surrogate
 from painter.painter_utils import load_painter, paint_images
 from model.pcld_bpda import BPDAPainter, CLD, PCLD
 from util.attacks import attacker
@@ -52,8 +50,10 @@ def main_attack_pcld(args: argparse.Namespace, device: str) -> None:
 
     n_classes = len(IMAGENET_2012_LABELS.keys())
     classes = sorted(IMAGENET_2012_LABELS.values())
-    train_transform = transform_dataset(augmentations=False, to_integers=False)
-    test_transform = transform_dataset(augmentations=False, to_integers=False)
+    train_transform = transform_dataset(dataset_type=args.dataset_type,
+                                        preprocessing=args.preprocessing)
+    test_transform = transform_dataset(dataset_type=args.dataset_type,
+                                       preprocessing=args.preprocessing)
     loaders = get_loaders(dataset, train_transform, test_transform, batch_size)
 
     actor, renderer = load_painter(device)
@@ -106,26 +106,18 @@ def main_attack_pcld(args: argparse.Namespace, device: str) -> None:
 
     results_local_dir = os.path.join(RESOURCES_RESULTS_DIR, experiment_name)
     os.makedirs(results_local_dir, exist_ok=True)
-    results_local_path = os.path.join(results_local_dir, f'results.csv')
-    res_train = pd.DataFrame()
-    res_val = pd.DataFrame()
-    res_test = pd.DataFrame()
-    res_epsilon = pd.DataFrame()
     targeted = attack_direction == 'targeted'
 
     for epsilon in args.epsilons:
         print(f'attack with epsilon {epsilon}/255...')
         if attack_train:
-            res_train = attacker(experiment_name, dataset, attack, pcld, cld, run_naive_attack,
-                                 loaders['train'][1], 'train', epsilon, targeted, output_every, n_classes,
-                                 classes, attack_nb_iter, device)
-            res_val = attacker(experiment_name, dataset, attack, pcld, cld, run_naive_attack,
-                               loaders['val'][1], 'val', epsilon, targeted, output_every, n_classes,
-                               classes, attack_nb_iter, device)
-        res_test = attacker(experiment_name, dataset, attack, pcld, cld, run_naive_attack,
-                            loaders['test'][1], 'test', epsilon, targeted, output_every, n_classes,
-                            classes, attack_nb_iter, device)
-        res_epsilon = pd.concat([res_epsilon, res_train, res_val, res_test], ignore_index=True, axis=0)
-        print(f'save results...')
-        res_epsilon.to_csv(results_local_path, index=False)
+            attacker(experiment_name, dataset, attack, pcld, cld, run_naive_attack,
+                     loaders['train'][1], 'train', epsilon, targeted, output_every,
+                     classes, attack_nb_iter, device, output_dir=results_local_dir)
+            attacker(experiment_name, dataset, attack, pcld, cld, run_naive_attack,
+                     loaders['val'][1], 'val', epsilon, targeted, output_every,
+                     classes, attack_nb_iter, device, output_dir=results_local_dir)
+        attacker(experiment_name, dataset, attack, pcld, cld, run_naive_attack,
+                 loaders['test'][1], 'test', epsilon, targeted, output_every,
+                 classes, attack_nb_iter, device, output_dir=results_local_dir)
         print(f'finished attack with epsilon {epsilon}/255!')
