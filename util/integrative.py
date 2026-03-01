@@ -61,8 +61,12 @@ def parse_args() -> argparse.Namespace:
                         help='the selection of paint steps (t)')
 
     ### Classifier
-    parser.add_argument('--model_type', '-mt', type=str, required=False, default="resnet18",
-                        help='architecture type (e.g. resnet18)')
+    parser.add_argument('--preprocessing', '-pre', type=str, required=False, default=None,
+                        help='eval preprocessing key from PREPROCESSINGS dict '
+                             '(e.g. Res256Crop224, Res224, BicubicRes256Crop224); '
+                             'None = plain ToTensor + Normalize')
+    parser.add_argument('--model_type', '-mt', type=str, required=False, default='wrn-70-16',
+                        help='architecture type: wrn-70-16 | wrn-34-10 | xcit-m12')
     parser.add_argument('--pretrained_weights', '-ptw', type=str, required=False,
                         help='pretrained weights path')
     parser.add_argument('--max_epochs', '-mxp', type=int, required=False, default=51,

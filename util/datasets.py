@@ -1,13 +1,13 @@
 import os
-from typing import Union
+from typing import Optional
 
-from PIL import Image
 import numpy as np
 import pandas as pd
 import torch
+from PIL import Image
 from torchvision import datasets, transforms
 
-from util.consts import RESOURCES_DATASETS_DIR, IMAGENETConsts
+from util.consts import RESOURCES_DATASETS_DIR, IMAGENETConsts, CIFAR10Consts
 
 
 def load_image(path: str, width: int = 300, height: int = 300) -> np.ndarray:
@@ -56,42 +56,36 @@ class ImageFolderWithPaths(datasets.ImageFolder):
         return tuple_with_path
 
 
-def transform_dataset(augmentations: bool, dataset_type: str = 'imagenet') -> transforms.Compose:
+def transform_dataset(dataset_type: str = 'imagenet',
+                      preprocessing: Optional[str] = None) -> transforms.Compose:
     """Builds a torchvision transform pipeline for the given dataset type.
 
-    For training splits, random crop, flip, and (for ImageNet) rotation
-    augmentations are prepended. All splits end with ToTensor and ImageNet
-    normalisation (mean/std from IMAGENETConsts).
+    Returns the ready-made pipeline stored in the dataset's ``PREPROCESSINGS`` dict under the
+    ``preprocessing`` key. If ``preprocessing`` is None, returns a simple ToTensor + Normalize pipeline.
 
     Args:
-        augmentations: If True, include data-augmentation transforms before
-            normalisation.
-        dataset_type: Dataset family; 'imagenet' or 'cifar10'. Determines
-            which augmentation operations are applied.
+        dataset_type: Dataset family; ``'imagenet'`` or ``'cifar10'``. Selects
+            the ``PREPROCESSINGS`` dict.
+        preprocessing: Key into the dataset's ``PREPROCESSINGS`` dict (e.g.
+            ``'Res256Crop224'``, ``'Res224'``, ``'BicubicRes256Crop224'``).
+            ``None`` selects plain ToTensor + Normalize.
 
     Returns:
-        A composed transform ready to pass to ImageFolderWithPaths.
+        A composed transform ready to pass to ``ImageFolderWithPaths``.
+
+    Raises:
+        ValueError: If ``preprocessing`` is not a recognised key for the
+            chosen dataset type.
     """
-    composition = []
-    if augmentations:
-        if dataset_type == "imagenet":
-            composition.extend([
-                transforms.RandomResizedCrop(224, scale=(0.5, 1.0)),
-                transforms.RandomHorizontalFlip(p=0.5),
-                transforms.RandomRotation(45)
-            ])
-        elif dataset_type == "cifar10":
-            composition.extend([
-                transforms.RandomCrop(32, padding=4),
-                transforms.RandomHorizontalFlip(),
-            ])
+    consts = IMAGENETConsts if dataset_type == 'imagenet' else CIFAR10Consts
 
-    composition.extend([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=IMAGENETConsts.MEAN, std=IMAGENETConsts.STD)
-    ])
-
-    return transforms.Compose(composition)
+    if preprocessing not in consts.PREPROCESSINGS:
+        raise ValueError(
+            f"Preprocessing {preprocessing!r} is not valid for "
+            f"{dataset_type!r}. "
+            f"Available options: {list(consts.PREPROCESSINGS.keys())}"
+        )
+    return consts.PREPROCESSINGS[preprocessing]
 
 
 def create_ds_loader(path: str, transform: transforms.Compose,
@@ -145,24 +139,66 @@ def get_loaders(dataset: str, splits: Union[list, str],
     return loaders
 
 
-def concat_to_one_decisioner_dataset(ds_local_dir: str) -> pd.DataFrame:
-    """Concatenates all PCL attack CSV files in a directory into one DataFrame.
+def load_decisioner_dataset(results_dir: str,
+                            attacked_model: str | None = 'adaptive') -> pd.DataFrame:
+    """Loads and concatenates all attacker Parquet files from a results directory.
 
-    Reads every CSV in `ds_local_dir`, filters rows where attacked_model is
-    'pcl' (the only rows relevant for decisioner training), and returns the
-    combined result.
+    Reads every `*_results.parquet` file written by `attacker()`, concatenates
+    them into a single DataFrame, and optionally filters to a specific
+    attacked_model type. The resulting DataFrame contains both metadata columns
+    and inline `prob_<classname>` probability columns, making it directly
+    usable for decisioner training without any additional joins.
 
     Args:
-        ds_local_dir: Path to the directory containing per-epsilon attack CSV
-            files produced by the attack_pcl experiment.
+        results_dir: Path to the directory containing `*_results.parquet` files
+            produced by the attack_pcl or attack_pcld experiments.
+        attacked_model: If provided, only rows where the 'attacked_model' column
+            matches this value are returned. Pass 'adaptive' (default) to get
+            the BPDA-attacked outputs used for decisioner training, 'naive' for
+            the CLD baseline, or None to return all rows.
 
     Returns:
-        Concatenated DataFrame of all PCL attack records.
+        Concatenated DataFrame with all metadata and probability columns.
+
+    Raises:
+        FileNotFoundError: If no `*_results.parquet` files are found in
+            `results_dir`.
     """
-    df_dataset = pd.DataFrame()
-    for file_name in os.listdir(ds_local_dir):
-        file_path = os.path.join(ds_local_dir, file_name)
-        df = pd.read_csv(file_path)
-        df = df[df['attacked_model'] == 'pcl']
-        df_dataset = pd.concat([df_dataset, df], axis=0, ignore_index=True)
-    return df_dataset
+    parquet_files = [
+        os.path.join(results_dir, f)
+        for f in os.listdir(results_dir)
+        if f.endswith('_results.parquet')
+    ]
+
+    if not parquet_files:
+        raise FileNotFoundError(
+            f'No *_results.parquet files found in {results_dir}. '
+            f'Run the attack_pcl experiment first.'
+        )
+
+    frames = [pd.read_parquet(p) for p in sorted(parquet_files)]
+    df = pd.concat(frames, axis=0, ignore_index=True)
+
+    if attacked_model is not None:
+        df = df[df['attacked_model'] == attacked_model].reset_index(drop=True)
+
+    print(f'Loaded {len(df)} rows from {len(parquet_files)} files in {results_dir}')
+    return df
+
+
+def concat_to_one_decisioner_dataset(ds_local_dir: str) -> pd.DataFrame:
+    """Loads the decisioner training dataset from a results directory.
+
+    Delegates to `load_decisioner_dataset`, returning only the 'adaptive'
+    attacked_model rows (the BPDA-attacked outputs). This function exists for
+    backwards compatibility; prefer calling `load_decisioner_dataset` directly
+    for new code.
+
+    Args:
+        ds_local_dir: Path to the directory containing `*_results.parquet` files
+            produced by the attack_pcl experiment.
+
+    Returns:
+        Concatenated DataFrame of all adaptive PCL attack records.
+    """
+    return load_decisioner_dataset(ds_local_dir, attacked_model='adaptive')
