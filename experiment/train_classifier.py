@@ -31,7 +31,8 @@ def main_train_classifier(args: argparse.Namespace, device: str) -> None:
         (args.dataset, args.dataset_type, args.splits, args.experiment_name, args.model_type, args.pretrained_weights,
          args.lr, args.patience, args.batch_size, args.max_epochs)
 
-    train_transform = transform_dataset(dataset_type=dataset_type)
+    train_transform = transform_dataset(dataset_type=dataset_type,
+                                        preprocessing=args.train_preprocessing)
     val_transform = transform_dataset(dataset_type=dataset_type,
                                       preprocessing=args.preprocessing)
     transform_dict = {"train": train_transform, "val": val_transform}

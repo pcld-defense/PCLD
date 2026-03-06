@@ -12,7 +12,7 @@ import torch.nn as nn
 import torch.optim as optim
 from robustbench.model_zoo.architectures.wide_resnet import WideResNet
 
-from model.consts import CLASSIFIER_REGISTRY, ClassifierConfig
+from model.consts import CLASSIFIER_REGISTRY, ClassifierConfig, ROBUSTBENCH_STANDARD_MODELS
 from util.consts import CIFAR10Consts, IMAGENETConsts
 from util.models import load_model
 
@@ -30,7 +30,8 @@ SUPPORTED_MODELS: list = sorted(CLASSIFIER_REGISTRY)
 # ---------------------------------------------------------------------------
 
 def _build_model(cfg: ClassifierConfig, n_classes: int,
-                 use_pretrained: bool = True) -> nn.Module:
+                 use_pretrained: bool = True,
+                 dataset_type: str = 'cifar10') -> nn.Module:
     """Instantiates a bare model from its registry config.
 
     Args:
@@ -38,13 +39,19 @@ def _build_model(cfg: ClassifierConfig, n_classes: int,
         n_classes: Number of output classes.
         use_pretrained: When ``False``, suppresses timm hub weight loading
             even if ``cfg.timm_pretrained`` is ``True`` (used when a local
-            checkpoint will be loaded afterwards).
+            checkpoint will be loaded afterwards). Ignored for
+            ``family='robustbench'`` since robustbench always bundles weights.
+        dataset_type: Dataset family; used by the ``'robustbench'`` branch to
+            select the correct model zoo (currently only ``'cifar10'``
+            is supported).
 
     Returns:
-        Uninitialised (or hub-pretrained) ``nn.Module``.
+        Uninitialised (or hub-/robustbench-pretrained) ``nn.Module``.
 
     Raises:
-        ValueError: If ``cfg.family`` is not a recognised build family.
+        ValueError: If ``cfg.family`` is not a recognised build family, or if
+            a ``'robustbench'`` model name is not in
+            ``ROBUSTBENCH_STANDARD_MODELS``.
     """
     if cfg.family == 'wrn':
         return WideResNet(depth=cfg.wrn_depth, num_classes=n_classes,
@@ -54,6 +61,24 @@ def _build_model(cfg: ClassifierConfig, n_classes: int,
         pretrained = cfg.timm_pretrained and use_pretrained
         return timm.create_model(cfg.timm_name, pretrained=pretrained,
                                  num_classes=n_classes)
+
+    if cfg.family == 'robustbench':
+        if cfg.robustbench_name not in ROBUSTBENCH_STANDARD_MODELS:
+            raise ValueError(
+                f"RobustBench model {cfg.robustbench_name!r} is not in the "
+                f"non-adversarially-trained allowlist "
+                f"{ROBUSTBENCH_STANDARD_MODELS}. "
+                f"Using adversarially pre-trained weights would compromise "
+                f"PCLD's research validity."
+            )
+        if dataset_type != 'cifar10':
+            raise ValueError(
+                f"RobustBench standard models are only available for "
+                f"'cifar10', got {dataset_type!r}."
+            )
+        from robustbench.utils import load_model as rb_load_model  # lazy import
+        return rb_load_model(model_name=cfg.robustbench_name,
+                             dataset='cifar10', threat_model='Linf')
 
     raise ValueError(
         f"Unknown architecture family {cfg.family!r}. "
@@ -118,7 +143,8 @@ def get_net(dataset_type: str, device: str, model_type: str = 'wrn-70-16',
     n_classes = _DATASET_NUM_CLASSES[dataset_type]
 
     # Suppress hub weights when a local checkpoint will be loaded next.
-    model = _build_model(cfg, n_classes, use_pretrained=(weights is None))
+    model = _build_model(cfg, n_classes, use_pretrained=(weights is None),
+                         dataset_type=dataset_type)
 
     if weights is not None:
         model = load_model(model, weights, device)

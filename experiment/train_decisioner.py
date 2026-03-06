@@ -39,7 +39,6 @@ def main_train_decisioner(args: argparse.Namespace, device: str) -> None:
     classes = sorted(IMAGENET_2012_LABELS.values())
     epsilons = list(sorted(df_dataset.epsilon.unique()))
     epsilons_weights = {eps: 15 - eps if eps < 15 else (2 if eps < 100 else 1) for eps in epsilons}
-    prob_cols = ['prob_' + c for c in classes]
     num_paint_steps = len(df_dataset['t'].unique())
 
     df_train = df_dataset[(df_dataset['phase'].isin(['train']))]
@@ -53,7 +52,7 @@ def main_train_decisioner(args: argparse.Namespace, device: str) -> None:
         y_actual_train_full, y_pred_train_full, y_prob_train_full, indices_train_full, \
         y_actual_test, y_pred_test, y_prob_test, indices_test = \
         trainer_decisioner(decisioner_architechture, batch_size, max_epochs, find_best_epoch,
-                           df_train, df_val, df_train_full, df_test, num_paint_steps, prob_cols,
+                           df_train, df_val, df_train_full, df_test, num_paint_steps,
                            epsilons_weights, n_classes, classes, epsilons, device)
 
     print('-' * NUM_OF_HYPHENS)

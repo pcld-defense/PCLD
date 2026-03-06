@@ -16,8 +16,12 @@ class ClassifierConfig:
         family: Architecture source family; determines the build branch in
             ``model/classifier.py``.  Built-in families:
 
-            - ``'wrn'``  — Wide ResNet via ``robustbench``.
-            - ``'timm'`` — Any model available in the ``timm`` hub.
+            - ``'wrn'``         — Wide ResNet architecture (random init; load
+              local weights via ``get_net(weights=...)``.
+            - ``'timm'``        — Any model available in the ``timm`` hub.
+            - ``'robustbench'`` — Model fetched from the RobustBench model zoo.
+              Only **non-adversarially-trained** entries are allowed (see
+              ``ROBUSTBENCH_STANDARD_MODELS``).
 
         optimizer: Optimizer type; ``'sgd'`` or ``'adamw'``.
         weight_decay_imagenet: L2 regularisation weight for ImageNet training.
@@ -28,6 +32,9 @@ class ClassifierConfig:
             (``family='timm'`` only).
         timm_pretrained: If ``True``, load timm hub pretrained weights when
             no local checkpoint path is provided (``family='timm'`` only).
+        robustbench_name: Model name passed to ``robustbench.utils.load_model``
+            (``family='robustbench'`` only).  Must be in
+            ``ROBUSTBENCH_STANDARD_MODELS``.
     """
 
     family: str
@@ -38,6 +45,22 @@ class ClassifierConfig:
     wrn_width: Optional[int] = None
     timm_name: Optional[str] = None
     timm_pretrained: bool = False
+    robustbench_name: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Allowlist of RobustBench CIFAR-10 models permitted for use in the registry.
+# Includes both standard (non-AT) and adversarially-trained baseline models.
+# AT models are allowed for baseline evaluation only, not as the PCLD
+# classifier used during adversarial training.
+# ---------------------------------------------------------------------------
+ROBUSTBENCH_STANDARD_MODELS: list = [
+    'Standard',                           # WRN-28-10, non-AT — Rice et al. 2020
+    'Carmon2019Unlabeled',               # WRN-28-10, AT + unlabeled data
+    'Gowal2021Improving_28_10_ddpm_100m',  # WRN-28-10, AT + DDPM data
+    'Rebuffi2021Fixing_28_10_cutmix_ddpm', # WRN-28-10, AT + cutmix + DDPM
+    'Wang2023Better_WRN-28-10',           # WRN-28-10, AT — Wang et al. 2023
+]
 
 
 # ---------------------------------------------------------------------------
@@ -61,6 +84,53 @@ CLASSIFIER_REGISTRY: dict = {
         weight_decay_cifar10=5e-4,
         wrn_depth=34,
         wrn_width=10,
+    ),
+
+    # --- RobustBench CIFAR-10 models (standard + adversarially-trained baselines) ---
+    'wrn-28-10-standard': ClassifierConfig(
+        family='robustbench',
+        optimizer='sgd',
+        weight_decay_imagenet=1e-4,
+        weight_decay_cifar10=5e-4,
+        wrn_depth=28,
+        wrn_width=10,
+        robustbench_name='Standard',
+    ),
+    'wrn-28-10-carmon2019': ClassifierConfig(
+        family='robustbench',
+        optimizer='sgd',
+        weight_decay_imagenet=1e-4,
+        weight_decay_cifar10=5e-4,
+        wrn_depth=28,
+        wrn_width=10,
+        robustbench_name='Carmon2019Unlabeled',
+    ),
+    'wrn-28-10-gowal2021': ClassifierConfig(
+        family='robustbench',
+        optimizer='sgd',
+        weight_decay_imagenet=1e-4,
+        weight_decay_cifar10=5e-4,
+        wrn_depth=28,
+        wrn_width=10,
+        robustbench_name='Gowal2021Improving_28_10_ddpm_100m',
+    ),
+    'wrn-28-10-rebuffi2021': ClassifierConfig(
+        family='robustbench',
+        optimizer='sgd',
+        weight_decay_imagenet=1e-4,
+        weight_decay_cifar10=5e-4,
+        wrn_depth=28,
+        wrn_width=10,
+        robustbench_name='Rebuffi2021Fixing_28_10_cutmix_ddpm',
+    ),
+    'wrn-28-10-wang2023': ClassifierConfig(
+        family='robustbench',
+        optimizer='sgd',
+        weight_decay_imagenet=1e-4,
+        weight_decay_cifar10=5e-4,
+        wrn_depth=28,
+        wrn_width=10,
+        robustbench_name='Wang2023Better_WRN-28-10',
     ),
 
     # --- Vision Transformers (timm) ------------------------------------------

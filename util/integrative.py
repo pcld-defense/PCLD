@@ -65,6 +65,9 @@ def parse_args() -> argparse.Namespace:
                         help='eval preprocessing key from PREPROCESSINGS dict '
                              '(e.g. Res256Crop224, Res224, BicubicRes256Crop224); '
                              'None = plain ToTensor + Normalize')
+    parser.add_argument('--train_preprocessing', '-tpre', type=str, required=False, default=None,
+                        help='train preprocessing key from PREPROCESSINGS dict '
+                             '(e.g. augmented); None = plain ToTensor + Normalize')
     parser.add_argument('--model_type', '-mt', type=str, required=False, default='wrn-70-16',
                         help='architecture type: wrn-70-16 | wrn-34-10 | xcit-m12')
     parser.add_argument('--pretrained_weights', '-ptw', type=str, required=False,

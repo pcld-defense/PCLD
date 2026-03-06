@@ -70,7 +70,15 @@ class CIFAR10Consts:
     STD = (0.2471, 0.2435, 0.2616)
     PREPROCESSINGS = {
         None: transforms.Compose([transforms.ToTensor(),
-                                  transforms.Normalize(mean=MEAN, std=STD)])
+                                  transforms.Normalize(mean=MEAN, std=STD)]),
+        'augmented': transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=MEAN, std=STD),
+            transforms.RandomErasing(p=0.5),
+        ]),
     }
 
 
