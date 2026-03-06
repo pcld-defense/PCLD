@@ -6,3 +6,7 @@
 *.iml
 .env
 .idea
+.pt
+.venv
+.claude
+CLAUDE.md
