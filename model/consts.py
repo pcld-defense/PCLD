@@ -60,6 +60,11 @@ ROBUSTBENCH_STANDARD_MODELS: list = [
     'Gowal2021Improving_28_10_ddpm_100m',  # WRN-28-10, AT + DDPM data
     'Rebuffi2021Fixing_28_10_cutmix_ddpm', # WRN-28-10, AT + cutmix + DDPM
     'Wang2023Better_WRN-28-10',           # WRN-28-10, AT — Wang et al. 2023
+    # WRN-34-10 adversarially-trained baselines
+    'Cui2020Learnable_34_10',             # WRN-34-10, AT — TRADES variant
+    'Chen2021LTD_WRN34_10',              # WRN-34-10, AT — LTD
+    'Jia2022LAS-AT_34_10',               # WRN-34-10, AT — LAS-AT
+    'Addepalli2022Efficient_WRN_34_10',   # WRN-34-10, AT — Addepalli et al.
 ]
 
 
@@ -131,6 +136,44 @@ CLASSIFIER_REGISTRY: dict = {
         wrn_depth=28,
         wrn_width=10,
         robustbench_name='Wang2023Better_WRN-28-10',
+    ),
+
+    # --- RobustBench WRN-34-10 adversarially-trained baselines ----------------
+    'wrn-34-10-cui2020': ClassifierConfig(
+        family='robustbench',
+        optimizer='sgd',
+        weight_decay_imagenet=1e-4,
+        weight_decay_cifar10=5e-4,
+        wrn_depth=34,
+        wrn_width=10,
+        robustbench_name='Cui2020Learnable_34_10',
+    ),
+    'wrn-34-10-chen2021': ClassifierConfig(
+        family='robustbench',
+        optimizer='sgd',
+        weight_decay_imagenet=1e-4,
+        weight_decay_cifar10=5e-4,
+        wrn_depth=34,
+        wrn_width=10,
+        robustbench_name='Chen2021LTD_WRN34_10',
+    ),
+    'wrn-34-10-jia2022': ClassifierConfig(
+        family='robustbench',
+        optimizer='sgd',
+        weight_decay_imagenet=1e-4,
+        weight_decay_cifar10=5e-4,
+        wrn_depth=34,
+        wrn_width=10,
+        robustbench_name='Jia2022LAS-AT_34_10',
+    ),
+    'wrn-34-10-addepalli2022': ClassifierConfig(
+        family='robustbench',
+        optimizer='sgd',
+        weight_decay_imagenet=1e-4,
+        weight_decay_cifar10=5e-4,
+        wrn_depth=34,
+        wrn_width=10,
+        robustbench_name='Addepalli2022Efficient_WRN_34_10',
     ),
 
     # --- Vision Transformers (timm) ------------------------------------------

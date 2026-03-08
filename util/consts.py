@@ -71,6 +71,7 @@ class CIFAR10Consts:
     PREPROCESSINGS = {
         None: transforms.Compose([transforms.ToTensor(),
                                   transforms.Normalize(mean=MEAN, std=STD)]),
+        'ToTensorOnly': transforms.Compose([transforms.ToTensor()]),
         'augmented': transforms.Compose([
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
