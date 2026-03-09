@@ -82,14 +82,14 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
     results_local_dir = os.path.join(RESOURCES_RESULTS_DIR, experiment_name)
     os.makedirs(results_local_dir, exist_ok=True)
     attack_direction_bool = attack_direction == 'targeted'
+    save_parquet = bool(args.save_parquet)
     for epsilon in args.epsilons:
         print(f'attack with epsilon {epsilon}/255...')
-        attacker(experiment_name, dataset, attack, pcl, clf, run_naive_attack,
-                 loaders['train'][1], 'train', epsilon, attack_direction_bool,
-                 output_every, classes=classes, attack_nb_iter=attack_nb_iter,
-                 device=device, output_dir=results_local_dir, output_type='paints_inference')
-        attacker(experiment_name, dataset, attack, pcl, clf, run_naive_attack,
-                 loaders['val'][1], 'val', epsilon, attack_direction_bool,
-                 output_every, classes=classes, attack_nb_iter=attack_nb_iter,
-                 device=device, output_dir=results_local_dir, output_type='paints_inference')
+        for split in splits:
+            attacker(experiment_name, dataset, attack, pcl, clf, run_naive_attack,
+                     loaders[split][1], split, epsilon, attack_direction_bool,
+                     output_every, classes=classes, attack_nb_iter=attack_nb_iter,
+                     device=device, output_dir=results_local_dir,
+                     output_type='paints_inference', norm=args.attack_norm,
+                     save_parquet=save_parquet)
         print(f'finished attack with epsilon {epsilon}/255!')

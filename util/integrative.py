@@ -95,6 +95,11 @@ def parse_args() -> argparse.Namespace:
                         help='attack iterations')
     parser.add_argument('--run_naive_attack', '-rna', type=int, required=False, default=0,
                         help='whether to run naive attack in addition to the adaptive attack')
+    parser.add_argument('--save_parquet', '-spq', type=int, required=False, default=1,
+                        help='1 = save full Parquet with softmaxes (default); '
+                             '0 = save lightweight CSV without softmax vectors')
+    parser.add_argument('--attack_norm', '-anm', type=str, required=False, default='linf',
+                        help='attack norm: linf or l2')
 
     parsed = parser.parse_args()
 
