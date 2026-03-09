@@ -14,18 +14,35 @@ pip install -r requirements.txt
 ```
 
 ### Environment variables (`.env` file)
-The project uses `python-dotenv` to load path configuration. Create a `.env` file at the project root:
+The project uses `python-dotenv` to load path configuration. The `.env` at the project root is already configured with absolute paths:
 ```
-RESOURCES_DIR=./resources
-RESOURCES_DATASETS_DIR=./resources/datasets
-RESOURCES_RESULTS_DIR=./resources/results
-RESOURCES_MODELS_DIR=./resources/models
-ACTOR_WEIGHTS_PATH=./resources/models/painter_actor/actor.pkl
-RENDERER_WEIGHTS_PATH=./resources/models/painter_renderer/renderer.pkl
+RESOURCES_DIR=/home/idanbib/PCLD/code/resources/
+RESOURCES_DATASETS_DIR=/home/idanbib/PCLD/data/
+RESOURCES_RESULTS_DIR=/home/idanbib/PCLD/results
+RESOURCES_MODELS_DIR=/home/idanbib/PCLD/models
+ACTOR_WEIGHTS_PATH=/home/idanbib/PCLD/models/painter_actor/actor.pkl
+RENDERER_WEIGHTS_PATH=/home/idanbib/PCLD/models/painter_renderer/renderer.pkl
 ```
 
+Key path locations:
+- **Models** (pretrained + trained): `/home/idanbib/PCLD/models/`
+- **Datasets**: `/home/idanbib/PCLD/data/`
+- **Results** (CSV/Parquet/HDF5): `/home/idanbib/PCLD/results/`
+
 ### Download pretrained models
-Download the full `models/` folder from [Google Drive](https://drive.google.com/drive/folders/1wydFD78BNzktSY162IYZ5AJMrPE2O43D?usp=drive_link) and place it at `resources/models/`. Alternatively, run `experiments_stuff.py` to programmatically download individual model files via gdown.
+Download the full `models/` folder from [Google Drive](https://drive.google.com/drive/folders/1wydFD78BNzktSY162IYZ5AJMrPE2O43D?usp=drive_link) and place it at `/home/idanbib/PCLD/models/`. Alternatively, run `experiments_stuff.py` to programmatically download individual model files via gdown.
+
+## Python Environment
+
+Always use the project's virtual environment:
+```bash
+/home/idanbib/PCLD/code/.venv/bin/python main.py ...
+```
+
+Before running any experiment, verify GPU availability:
+```bash
+/home/idanbib/PCLD/code/.venv/bin/python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NO GPU')"
+```
 
 ## Running Experiments
 
@@ -49,9 +66,9 @@ python main.py --experiment_type attack_pcld --experiment_suff pgd10_targeted --
 ```
 
 Outputs:
-- Painted datasets → `resources/datasets/<experiment_name>/`
-- Trained models → `resources/models/<experiment_name>/`
-- Attack results (CSV + Parquet + HDF5) → `resources/results/<experiment_name>/`
+- Painted datasets → `/home/idanbib/PCLD/data/<experiment_name>/`
+- Trained models → `/home/idanbib/PCLD/models/<experiment_name>/`
+- Attack results (CSV + Parquet + HDF5) → `/home/idanbib/PCLD/results/<experiment_name>/`
 
 ## Architecture
 
@@ -132,6 +149,20 @@ def paint_images(x: torch.Tensor, output_every: list[int], device: str,
     """
     ...
 ```
+
+## Run Naming Conventions
+
+Experiment names are constructed as `<experiment_type>_<architecture/suff>_<dataset>_<variant>`. Match the patterns observed in `/home/idanbib/PCLD/results/`:
+
+| Pattern | Example |
+|---------|---------|
+| `train_classifier_<arch>_<dataset>` | `train_classifier_wrn34_cifar10` |
+| `train_classifier_<arch>_<dataset>_<variant>` | `train_classifier_wrn34_cifar10_paints`, `train_classifier_wrn34_cifar10_augmented` |
+| `attack_pcl_<arch>_<attack>_<direction>_<norm>` | `attack_pcl_wrn34-10-standard_fgsm_untargeted_linf` |
+| `eval_clf_<arch>_<dataset>` | `eval_clf_wrn34-10-standard_cifar10` |
+| `eval_rb_<model>_<variant>` | `eval_rb_carmon2019_paints` |
+
+The `--experiment_suff` CLI flag appends a suffix to the experiment type, forming the full name used for output directories.
 
 ## Important Notes
 

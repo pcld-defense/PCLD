@@ -1,7 +1,69 @@
+import glob
+import os
+from typing import Optional
+
 import numpy as np
 import pandas as pd
 import torch
 import matplotlib.pyplot as plt
+
+
+def evaluate_pcl_accuracy_from_csv(results_dir: str,
+                                   epsilons: Optional[list[int]] = None) -> pd.DataFrame:
+    """Evaluates PCL classifier accuracy per epsilon and per paint step from attack CSV files.
+
+    Loads all (or filtered) per-epsilon CSVs from an attack_pcl results directory,
+    computes accuracy as correct / total for every (epsilon, paint_step) combination,
+    and prints a pivot table with paint steps as rows and epsilons as columns.
+
+    The row with t=999999 represents the original unperturbed image (add_original step).
+
+    Args:
+        results_dir: Path to the attack_pcl results directory containing
+            files named ``val_eps<N>_linf_results.csv``.
+        epsilons: Optional list of integer epsilon values to restrict evaluation to.
+            When None, all CSVs found in the directory are loaded.
+
+    Returns:
+        DataFrame with columns ['epsilon', 't', 'accuracy', 'correct', 'total'],
+        sorted by epsilon then t.
+    """
+    pattern = os.path.join(results_dir, 'val_eps*_results.csv')
+    csv_files = sorted(glob.glob(pattern))
+    if not csv_files:
+        raise FileNotFoundError(f'No result CSVs found in {results_dir}')
+
+    dfs = []
+    for f in csv_files:
+        df = pd.read_csv(f)
+        if epsilons is not None and df['epsilon'].iloc[0] not in epsilons:
+            continue
+        dfs.append(df)
+
+    if not dfs:
+        raise ValueError(f'No CSVs matched epsilons={epsilons}')
+
+    data = pd.concat(dfs, ignore_index=True)
+
+    grouped = data.groupby(['epsilon', 't']).apply(
+        lambda g: pd.Series({
+            'correct': (g['actual'] == g['pred']).sum(),
+            'total': len(g),
+            'accuracy': (g['actual'] == g['pred']).mean(),
+        })
+    ).reset_index()
+
+    grouped = grouped.sort_values(['epsilon', 't']).reset_index(drop=True)
+
+    pivot = grouped.pivot(index='t', columns='epsilon', values='accuracy')
+    pivot.index = pivot.index.map(lambda t: 'original' if t == 999999 else t)
+    pivot.columns.name = 'epsilon'
+    pivot.index.name = 'paint_step'
+
+    print(f'\nPCL Accuracy per paint step and epsilon (n={grouped["total"].iloc[0]} images per step)')
+    print(pivot.applymap(lambda x: f'{x:.3f}').to_string())
+
+    return grouped
 
 
 def evaluate_print_decisioner(class_correct: list, class_total: list,

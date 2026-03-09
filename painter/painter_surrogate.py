@@ -106,7 +106,13 @@ class PainterSurrogate(torch.nn.Module):
             Stacked canvases of shape (B, Steps, 3, H, W), where Steps equals
             the number of surrogates.
         """
-        canvases = [surrogate(x) for surrogate in self.surrogates]
+        h, w = x.shape[-2], x.shape[-1]
+        canvases = []
+        for surrogate in self.surrogates:
+            out = surrogate(x)
+            if out.shape[-2:] != (h, w):
+                out = F.interpolate(out, size=(h, w), mode='bilinear', align_corners=False)
+            canvases.append(out)
         canvases = torch.stack(canvases, dim=1)
         return canvases
 
