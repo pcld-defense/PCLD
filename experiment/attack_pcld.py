@@ -11,7 +11,7 @@ from painter.painter_utils import load_painter, paint_images
 from model.pcld_bpda import BPDAPainter, CLD, PCLD
 from util.attacks import attacker
 from util.consts import NUM_OF_HYPHENS, IMAGENET_2012_LABELS, RESOURCES_RESULTS_DIR, \
-    RESOURCES_MODELS_DIR
+    RESOURCES_MODELS_DIR, CIFAR10Consts, IMAGENETConsts
 from util.datasets import transform_dataset, get_loaders
 from util.models import load_model
 
@@ -94,8 +94,13 @@ def main_attack_pcld(args: argparse.Namespace, device: str) -> None:
     cld = cld.to(device)
     cld.eval()
 
+    consts = CIFAR10Consts if args.dataset_type == 'cifar10' else IMAGENETConsts
+    norm_mean = torch.tensor(consts.MEAN)
+    norm_std  = torch.tensor(consts.STD)
+
     print(f'Creating PCLD BPDA model...')
-    bpda_painter = BPDAPainter(paint_images, painter_surrogate, output_every, device, actor, renderer).to(device).eval()
+    bpda_painter = BPDAPainter(paint_images, painter_surrogate, output_every, device, actor, renderer,
+                               mean=norm_mean, std=norm_std).to(device).eval()
     pcld = PCLD(bpda_painter, clf, decisioner, num_paint_steps, decisioner_architecture).to(device).eval()
     print(f'finished creating PCLD BPDA model!')
 

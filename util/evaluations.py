@@ -6,6 +6,65 @@ import numpy as np
 import pandas as pd
 import torch
 import matplotlib.pyplot as plt
+from skimage.metrics import structural_similarity, peak_signal_noise_ratio
+
+
+def evaluate_paint_similarity(paints: torch.Tensor, originals: torch.Tensor,
+                               step_labels: Optional[list] = None,
+                               print_results: bool = True) -> pd.DataFrame:
+    """Computes pixel-level distance and similarity metrics between painted canvases and originals.
+
+    For each paint step, computes MSE, RMSE, L-inf distance, PSNR, and SSIM
+    (averaged over the batch and channels), then prints a summary table.
+
+    Args:
+        paints: Painted canvas batch of shape (B, Steps, 3, H, W) in [0, 1].
+        originals: Original image batch of shape (B, 3, H, W) in [0, 1].
+        step_labels: Optional list of length Steps with human-readable step names
+            (e.g. the output_every list). Defaults to 0-indexed integers.
+        print_results: If True, prints the metrics table to stdout.
+
+    Returns:
+        DataFrame with columns ['step', 'mse', 'rmse', 'linf', 'psnr', 'ssim'],
+        one row per paint step, sorted by step order.
+    """
+    B, Steps, C, H, W = paints.shape
+    orig_np = originals.cpu().numpy()  # (B, C, H, W) in [0, 1]
+
+    if step_labels is None:
+        step_labels = list(range(Steps))
+
+    rows = []
+    for s in range(Steps):
+        canvas_np = paints[:, s].cpu().numpy()  # (B, C, H, W)
+        diff = canvas_np - orig_np
+
+        mse = float(np.mean(diff ** 2))
+        rmse = float(np.sqrt(mse))
+        linf = float(np.abs(diff).max())
+        psnr = float(np.mean([
+            peak_signal_noise_ratio(orig_np[i].transpose(1, 2, 0),
+                                    canvas_np[i].transpose(1, 2, 0),
+                                    data_range=1.0)
+            for i in range(B)
+        ]))
+        ssim = float(np.mean([
+            structural_similarity(orig_np[i].transpose(1, 2, 0),
+                                  canvas_np[i].transpose(1, 2, 0),
+                                  data_range=1.0, channel_axis=2)
+            for i in range(B)
+        ]))
+
+        rows.append({'step': step_labels[s], 'mse': mse, 'rmse': rmse,
+                     'linf': linf, 'psnr': psnr, 'ssim': ssim})
+
+    df = pd.DataFrame(rows)
+
+    if print_results:
+        print(f'\nPaint similarity to originals (B={B}, {H}x{W})')
+        print(df.to_string(index=False, float_format=lambda v: f'{v:.4f}'))
+
+    return df
 
 
 def evaluate_pcl_accuracy_from_csv(results_dir: str,

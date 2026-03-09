@@ -9,7 +9,7 @@ from painter.painter_surrogate import IdentitySurrogate_, PainterSurrogate, load
 from painter.painter_utils import load_painter, paint_images
 from util.attacks import attacker
 from util.consts import NUM_OF_HYPHENS, RESOURCES_RESULTS_DIR, RESOURCES_MODELS_DIR, \
-    ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH
+    ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH, CIFAR10Consts, IMAGENETConsts
 from util.datasets import transform_dataset, get_loaders
 
 
@@ -68,9 +68,14 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
     clf = get_net(dataset_type, device, model_type, clf_local_path)
     clf.eval()
 
+    consts = CIFAR10Consts if dataset_type == 'cifar10' else IMAGENETConsts
+    norm_mean = torch.tensor(consts.MEAN)
+    norm_std  = torch.tensor(consts.STD)
+
     print('-' * NUM_OF_HYPHENS)
     print(f'Creating PCL BPDA model...')
-    painter = BPDAPainter(paint_images, painter_surrogate, output_every, device, actor, renderer).to(device).eval()
+    painter = BPDAPainter(paint_images, painter_surrogate, output_every, device, actor, renderer,
+                          mean=norm_mean, std=norm_std).to(device).eval()
     pcl = PCL(painter, clf).to(device).eval()
 
     if torch.cuda.device_count() > 1:

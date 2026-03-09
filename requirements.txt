@@ -23,6 +23,7 @@ datasets
 
 # images
 opencv-python==4.10.0.82
+scikit-image==0.24.0
 
 robustbench==1.1.1
 timm>=0.9.0 # XCiT-M12 (xcit_medium_12_p16_224)

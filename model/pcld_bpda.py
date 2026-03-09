@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Optional, Union
 
 import torch
 import torch.nn as nn
@@ -109,7 +109,9 @@ class BPDAPainter(nn.Module):
     def __init__(self, non_diff_layer, grad_approx_net: nn.Module,
                  output_every: list[int], device: str, actor: nn.Module,
                  renderer: nn.Module, epsilon: Union[float, None] = None,
-                 norm: Union[str, None] = None) -> None:
+                 norm: Union[str, None] = None,
+                 mean: Optional[torch.Tensor] = None,
+                 std: Optional[torch.Tensor] = None) -> None:
         """Stores painting configuration.
 
         Args:
@@ -121,6 +123,12 @@ class BPDAPainter(nn.Module):
             renderer: RendererFCN stroke renderer.
             epsilon: L-inf budget for canvas-level perturbation (optional).
             norm: Attack norm for canvas-level perturbation (optional).
+            mean: Per-channel normalisation mean of shape (3,) used by the
+                DataLoader transform. When provided, inputs are unnormalised
+                to [0, 1] before painting and the painted canvases are
+                re-normalised before being passed to the classifier.
+            std: Per-channel normalisation std of shape (3,) paired with
+                ``mean``. Must be provided together with ``mean``.
         """
         super(BPDAPainter, self).__init__()
         self.non_diff_layer = non_diff_layer
@@ -131,25 +139,48 @@ class BPDAPainter(nn.Module):
         self.renderer = renderer
         self.epsilon = epsilon
         self.norm = norm
+        self.mean = mean  # (3,) or None
+        self.std = std    # (3,) or None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Paints the input batch via BPDAPainterLayer.
 
+        If ``mean``/``std`` were supplied, the normalised input is first
+        converted back to [0, 1] before painting, and all output canvases
+        (including the appended original step) are re-normalised so the
+        downstream classifier always receives correctly scaled inputs.
+
         Args:
-            x: Input image batch of shape (B, 3, H, W).
+            x: Input image batch of shape (B, 3, H, W), normalised when
+                ``mean``/``std`` are set.
 
         Returns:
-            Canvas tensor of shape (B, Steps, 3, H, W) in [0, 1].
+            Canvas tensor of shape (B, Steps, 3, H, W), normalised when
+            ``mean``/``std`` are set, in [0, 1] otherwise.
         """
-        return BPDAPainterLayer.apply(x,
-                                      self.non_diff_layer,
-                                      self.grad_approx_net,
-                                      self.output_every,
-                                      self.device,
-                                      self.actor,
-                                      self.renderer,
-                                      self.epsilon,
-                                      self.norm)
+        if self.mean is not None:
+            mean4d = self.mean.to(x.device).view(1, 3, 1, 1)
+            std4d  = self.std.to(x.device).view(1, 3, 1, 1)
+            x_input = x * std4d + mean4d          # unnormalise → [0, 1]
+        else:
+            x_input = x
+
+        canvases = BPDAPainterLayer.apply(x_input,
+                                          self.non_diff_layer,
+                                          self.grad_approx_net,
+                                          self.output_every,
+                                          self.device,
+                                          self.actor,
+                                          self.renderer,
+                                          self.epsilon,
+                                          self.norm)
+
+        if self.mean is not None:
+            mean5d = mean4d.unsqueeze(1)           # (1, 1, 3, 1, 1)
+            std5d  = std4d.unsqueeze(1)
+            canvases = (canvases - mean5d) / std5d  # re-normalise for classifier
+
+        return canvases
 
 
 class PCL(nn.Module):
