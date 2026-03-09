@@ -94,5 +94,6 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
                      output_every, classes=classes, attack_nb_iter=attack_nb_iter,
                      device=device, output_dir=results_local_dir,
                      output_type='paints_inference', norm=args.attack_norm,
-                     save_parquet=save_parquet)
+                     save_parquet=save_parquet,
+                     targeted_jumps_allowed=args.targeted_jumps_allowed)
         print(f'finished attack with epsilon {epsilon}/255!')

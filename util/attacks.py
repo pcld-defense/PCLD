@@ -166,7 +166,8 @@ def attacker(experiment: str, dataset: str, attack: str,
              phase: str, epsilon: int, targeted: bool, output_every: list[int],
              classes: list[str], attack_nb_iter: int, device: str,
              output_dir: str, output_type: str = 'final_decision',
-             norm: str = 'linf', save_parquet: bool = True) -> pd.DataFrame:
+             norm: str = 'linf', save_parquet: bool = True,
+             targeted_jumps_allowed: int = 6) -> pd.DataFrame:
     """Runs adaptive and (optionally) naïve attacks over an entire data loader.
 
     For each batch:
@@ -198,18 +199,30 @@ def attacker(experiment: str, dataset: str, attack: str,
         attack_nb_iter: Number of PGD iterations (ignored for FGSM/AA).
         device: Target device string.
         output_dir: Directory where the output file is written.
-        output_type: 'paints_inference' records one row per (image × paint
-            step); 'final_decision' records one row per image.
+        output_type: Controls the granularity of output rows.
+            - 'paints_inference': one row per (image × paint step), including
+              the original image as a final step (t=999999). Used by
+              attack_pcl to generate decisioner training data — the full
+              confidence trajectory across paint steps is required.
+            - 'final_decision': one row per image (only t=999999). Used by
+              attack_pcld where the decisioner has already collapsed the
+              trajectory into a single prediction and only the final outcome
+              matters.
         norm: Perturbation norm passed to attack_batch; 'linf' or 'l2'.
         save_parquet: If True, saves full results including softmax vectors
             as a Parquet file. If False, saves a lightweight CSV without the
             'probs' column.
+        targeted_jumps_allowed: Maximum random class offset when generating
+            targeted labels. The target is sampled as
+            (true_label + randint(1, targeted_jumps_allowed+1)) % n_classes.
+            For untargeted attacks this value is unused. Default is 6, which
+            is reasonable for ImageNet (1000 classes); use a smaller value
+            (e.g. 1) for CIFAR-10 (10 classes).
 
     Returns:
         DataFrame with one row per (image × paint step × attack type).
     """
     n_classes = len(classes)
-    targeted_jumps_allowed = 6 if targeted else 1
     epsilon_real = epsilon / 255.0
     if output_type == 'paints_inference':
         output_every_expanded = output_every + [999999]

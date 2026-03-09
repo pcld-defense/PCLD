@@ -100,6 +100,9 @@ def parse_args() -> argparse.Namespace:
                              '0 = save lightweight CSV without softmax vectors')
     parser.add_argument('--attack_norm', '-anm', type=str, required=False, default='linf',
                         help='attack norm: linf or l2')
+    parser.add_argument('--targeted_jumps_allowed', '-tja', type=int, required=False, default=6,
+                        help='max random class offset for targeted attack label generation; '
+                             'use 6 for ImageNet (1000 classes), 1 for CIFAR-10 (10 classes)')
 
     parsed = parser.parse_args()
 

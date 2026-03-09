@@ -118,10 +118,12 @@ def main_attack_pcld(args: argparse.Namespace, device: str) -> None:
         if attack_train:
             attacker(experiment_name, dataset, attack, pcld, cld, run_naive_attack,
                      loaders['train'][1], 'train', epsilon, targeted, output_every,
-                     classes, attack_nb_iter, device, output_dir=results_local_dir)
+                     classes, attack_nb_iter, device, output_dir=results_local_dir,
+                     targeted_jumps_allowed=args.targeted_jumps_allowed)
             attacker(experiment_name, dataset, attack, pcld, cld, run_naive_attack,
                      loaders['val'][1], 'val', epsilon, targeted, output_every,
-                     classes, attack_nb_iter, device, output_dir=results_local_dir)
+                     classes, attack_nb_iter, device, output_dir=results_local_dir,
+                     targeted_jumps_allowed=args.targeted_jumps_allowed)
         attacker(experiment_name, dataset, attack, pcld, cld, run_naive_attack,
                  loaders['test'][1], 'test', epsilon, targeted, output_every,
                  classes, attack_nb_iter, device, output_dir=results_local_dir)
