@@ -43,16 +43,14 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
          args.output_every, args.classifier_experiment, args.attack, args.attack_direction, args.attack_nb_iter,
          args.run_naive_attack, args.epsilons)
 
-    train_transform = transform_dataset(dataset_type=dataset_type,
+    split_transform = transform_dataset(dataset_type=dataset_type,
                                         preprocessing=args.preprocessing)
-    val_transform = transform_dataset(dataset_type=dataset_type,
-                                      preprocessing=args.preprocessing)
-    transform_dict = {"train": train_transform, "val": val_transform}
+    transform_dict = {split: split_transform for split in splits}
 
     loaders = get_loaders(dataset, splits, transform_dict, batch_size)
 
-    train_ds, train_loader = loaders["train"]
-    classes = sorted(train_ds.class_to_idx.keys())
+    first_ds = loaders[splits[0]][0]
+    classes = sorted(first_ds.class_to_idx.keys())
 
     actor, renderer = load_painter(ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH, device)
 
