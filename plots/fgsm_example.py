@@ -48,7 +48,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--clf_weights', default='/home/idanbib/PCLD/models/train_classifier_wrn34_cifar10_augmented/best_model.pth')
     parser.add_argument('--actor_weights', default='/home/idanbib/PCLD/models/painter_actor/actor.pkl')
     parser.add_argument('--renderer_weights', default='/home/idanbib/PCLD/models/painter_renderer/renderer.pkl')
-    parser.add_argument('--save_path', default='/home/idanbib/PCLD/results/fgsm_example_cat.png')
+    parser.add_argument('--save_path', default='/home/idanbib/PCLD/plots/fgsm_example_cat.png')
     return parser.parse_args()
 
 

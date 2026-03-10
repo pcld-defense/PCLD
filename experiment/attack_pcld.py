@@ -13,6 +13,7 @@ from util.attacks import attacker
 from util.consts import NUM_OF_HYPHENS, IMAGENET_2012_LABELS, RESOURCES_RESULTS_DIR, \
     RESOURCES_MODELS_DIR, CIFAR10Consts, IMAGENETConsts
 from util.datasets import transform_dataset, get_loaders
+from util.integrative import save_args_json
 from util.models import load_model
 
 
@@ -111,6 +112,7 @@ def main_attack_pcld(args: argparse.Namespace, device: str) -> None:
 
     results_local_dir = os.path.join(RESOURCES_RESULTS_DIR, experiment_name)
     os.makedirs(results_local_dir, exist_ok=True)
+    save_args_json(args, results_local_dir)
     targeted = attack_direction == 'targeted'
 
     for epsilon in args.epsilons:

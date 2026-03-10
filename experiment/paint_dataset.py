@@ -9,6 +9,7 @@ from torchvision.utils import save_image
 from painter.painter_utils import load_painter, paint_images
 from util.consts import RESOURCES_DATASETS_DIR, NUM_OF_HYPHENS, ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH
 from util.datasets import transform_dataset, get_loaders
+from util.integrative import save_args_json
 
 
 def paint_dataset(actor, renderer, loaders: tuple, loader_name: str,
@@ -107,6 +108,8 @@ def main_paint_dataset(args: argparse.Namespace, device: str) -> None:
     loaders = get_loaders(dataset, splits, transform_dict, batch_size)
 
     ds_local_dir_new = os.path.join(RESOURCES_DATASETS_DIR, f'{experiment_name}', dataset)
+    os.makedirs(os.path.join(RESOURCES_DATASETS_DIR, experiment_name), exist_ok=True)
+    save_args_json(args, os.path.join(RESOURCES_DATASETS_DIR, experiment_name))
 
     for split in splits:
         paint_dataset(actor, renderer, loaders[split], split, device, output_every, ds_local_dir_new)

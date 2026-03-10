@@ -11,6 +11,7 @@ from util.attacks import attacker
 from util.consts import NUM_OF_HYPHENS, RESOURCES_RESULTS_DIR, RESOURCES_MODELS_DIR, \
     ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH, CIFAR10Consts, IMAGENETConsts
 from util.datasets import transform_dataset, get_loaders
+from util.integrative import save_args_json
 
 
 def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
@@ -84,6 +85,7 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
 
     results_local_dir = os.path.join(RESOURCES_RESULTS_DIR, experiment_name)
     os.makedirs(results_local_dir, exist_ok=True)
+    save_args_json(args, results_local_dir)
     attack_direction_bool = attack_direction == 'targeted'
     save_parquet = bool(args.save_parquet)
     for epsilon in args.epsilons:

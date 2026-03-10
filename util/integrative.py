@@ -1,4 +1,19 @@
 import argparse
+import json
+import os
+
+
+def save_args_json(args: argparse.Namespace, output_dir: str) -> None:
+    """Saves the experiment argument namespace to a JSON file in output_dir.
+
+    Args:
+        args: Parsed argument namespace to serialise.
+        output_dir: Directory where ``args.json`` will be written.
+    """
+    path = os.path.join(output_dir, 'args.json')
+    with open(path, 'w') as f:
+        json.dump(vars(args), f, indent=2, default=str)
+    print(f'Saved args to {path}')
 
 
 def str_to_int_list(str_var: str, sep: str) -> list[int]:

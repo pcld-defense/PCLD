@@ -6,6 +6,7 @@ from model.classifier import get_net_and_optim
 from util.consts import RESOURCES_RESULTS_DIR
 from util.datasets import transform_dataset, get_loaders
 from util.evaluations import plot_loss_and_acc
+from util.integrative import save_args_json
 from util.models import process_epoch_clf, get_best_epoch, save_best_cls_model
 
 
@@ -46,6 +47,7 @@ def main_train_classifier(args: argparse.Namespace, device: str) -> None:
     results_local_path = os.path.join(RESOURCES_RESULTS_DIR, experiment_name, 'results.csv')
     plots_local_path = os.path.join(RESOURCES_RESULTS_DIR, experiment_name)
     os.makedirs(os.path.join(RESOURCES_RESULTS_DIR, experiment_name), exist_ok=True)
+    save_args_json(args, os.path.join(RESOURCES_RESULTS_DIR, experiment_name))
     results_df = pd.DataFrame()
 
     net, criterion, optimizer, scheduler = get_net_and_optim(dataset_type, device, lr, model_type, pretrained_weights)
