@@ -1,11 +1,13 @@
+import csv
 import glob
 import os
-from typing import Optional
+from typing import Callable, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn.functional as F
 from skimage.metrics import structural_similarity, peak_signal_noise_ratio
 
 
@@ -329,3 +331,208 @@ def evaluate_print(experiment: str, res_df: pd.DataFrame,
             classes[i], 100 * class_acc_i, class_correct_i, class_size_i))
     res_df = pd.concat([res_df, pd.DataFrame(res_dict)], axis=0, ignore_index=True)
     return res_df
+
+
+def diagnose_gradient_masking(
+        model: torch.nn.Module,
+        x: torch.Tensor,
+        y: torch.Tensor,
+        epsilon: float,
+        nb_iter: int = 50,
+        loss_fn: Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
+        output_csv: Optional[str] = None,
+) -> dict:
+    """Runs gradient-masking diagnostics on a single batch.
+
+    Performs three tests to detect whether a defence is relying on obfuscated
+    or masked gradients (Carlini et al. 2019; Tramer et al. NeurIPS 2020):
+
+    1. **Sign test** — checks that a single FGSM step actually increases the
+       loss, i.e. ``L(x + ε·sign(∇L)) > L(x)``. If the gradient is correctly
+       pointing uphill, the loss must increase.
+    2. **Loss-vs-iteration curve** — runs PGD for ``nb_iter`` steps and logs
+       the loss at every iteration. Correct gradients should produce a
+       monotonically non-decreasing loss curve.
+    3. **Monotonicity check** — verifies that mean loss at iteration T ≥ mean
+       loss at iteration T//2.  Violation is a strong masking signal.
+
+    All evaluations are performed with ``model.eval()`` to avoid BatchNorm
+    training-mode artefacts.
+
+    Args:
+        model: The model to diagnose (e.g. PCL or PCLD BPDA pipeline).
+        x: Clean input batch of shape (B, 3, H, W) in [0, 1].
+        y: True label tensor of shape (B,) (or (B*Steps,) for PCL).
+        epsilon: L-inf perturbation budget in [0, 1].
+        nb_iter: Number of PGD iterations for the loss curve test.
+        loss_fn: Optional custom loss callable. When None, uses standard
+            cross-entropy on ``model(x_adv)`` logits.
+        output_csv: If provided, saves the per-iteration loss curve to this
+            CSV path.
+
+    Returns:
+        Dict with keys:
+            ``sign_test_passed`` (bool),
+            ``loss_clean`` (float),
+            ``loss_after_fgsm`` (float),
+            ``loss_curve`` (list[float], one entry per PGD iter),
+            ``monotonicity_passed`` (bool).
+    """
+    model.eval()
+
+    def _compute_loss(x_in: torch.Tensor) -> torch.Tensor:
+        if loss_fn is not None:
+            return loss_fn(x_in, y)
+        logits = model(x_in)
+        return F.cross_entropy(logits, y, reduction='sum')
+
+    # ---- 1. Sign test ----
+    x_leaf = x.detach().requires_grad_(True)
+    loss_clean = _compute_loss(x_leaf)
+    loss_clean.backward()
+    with torch.no_grad():
+        x_fgsm = torch.clamp(x + epsilon * x_leaf.grad.sign(), 0.0, 1.0)
+        loss_after_fgsm = _compute_loss(x_fgsm).item()
+    loss_clean_val = loss_clean.item()
+    sign_test_passed = loss_after_fgsm > loss_clean_val
+
+    print(f'\n[gradient masking] Sign test: clean_loss={loss_clean_val:.4f}, '
+          f'fgsm_loss={loss_after_fgsm:.4f} → '
+          f'{"PASSED" if sign_test_passed else "FAILED (gradient masking suspected)"}')
+
+    # ---- 2. Loss-vs-iteration curve (PGD with fixed step) ----
+    alpha = epsilon / nb_iter
+    x_adv = torch.clamp(x + torch.zeros_like(x).uniform_(-epsilon, epsilon),
+                         0.0, 1.0).detach()
+    loss_curve: list[float] = []
+
+    for step in range(nb_iter):
+        x_adv = x_adv.requires_grad_(True)
+        step_loss = _compute_loss(x_adv)
+        step_loss.backward()
+        with torch.no_grad():
+            x_adv = x_adv.detach() + alpha * x_adv.grad.sign()
+            x_adv = torch.min(torch.max(x_adv, x - epsilon), x + epsilon)
+            x_adv = torch.clamp(x_adv, 0.0, 1.0)
+        loss_curve.append(step_loss.item())
+
+    # ---- 3. Monotonicity check ----
+    mid = nb_iter // 2
+    loss_first_half = float(np.mean(loss_curve[:mid])) if mid > 0 else 0.0
+    loss_second_half = float(np.mean(loss_curve[mid:]))
+    monotonicity_passed = loss_second_half >= loss_first_half
+
+    print(f'[gradient masking] Loss curve: first-half avg={loss_first_half:.4f}, '
+          f'second-half avg={loss_second_half:.4f} → '
+          f'{"PASSED" if monotonicity_passed else "FAILED (gradient masking suspected)"}')
+
+    if output_csv is not None:
+        os.makedirs(os.path.dirname(output_csv) or '.', exist_ok=True)
+        with open(output_csv, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['iteration', 'loss'])
+            for i, l in enumerate(loss_curve):
+                writer.writerow([i, l])
+        print(f'[gradient masking] Saved loss curve to {output_csv}')
+
+    return {
+        'sign_test_passed': sign_test_passed,
+        'loss_clean': loss_clean_val,
+        'loss_after_fgsm': loss_after_fgsm,
+        'loss_curve': loss_curve,
+        'monotonicity_passed': monotonicity_passed,
+    }
+
+
+def evaluate_surrogate_quality(
+        surrogate: torch.nn.Module,
+        real_painter_fn: Callable,
+        x: torch.Tensor,
+        output_every: list[int],
+        device: str,
+        actor: torch.nn.Module,
+        renderer: torch.nn.Module,
+        mse_threshold: float = 0.05,
+        print_results: bool = True,
+) -> pd.DataFrame:
+    """Evaluates per-step surrogate reconstruction quality against the real painter.
+
+    Runs both the real (non-differentiable) painter and the surrogate on the
+    same input batch and computes MSE and SSIM for each paint step. Steps where
+    MSE exceeds ``mse_threshold`` are flagged as candidates for retraining.
+
+    Args:
+        surrogate: PainterSurrogate that maps (B, 3, H, W) → (B, Steps, 3, H, W).
+        real_painter_fn: The ``paint_images`` callable that produces real canvases.
+        x: Input image batch of shape (B, 3, H, W) in [0, 1].
+        output_every: Stroke-count checkpoints — must match the surrogate's
+            training schedule.
+        device: Target device string.
+        actor: ActorResNet stroke-parameter predictor.
+        renderer: RendererFCN stroke renderer.
+        mse_threshold: Steps with MSE above this value are flagged as poor
+            quality. Default 0.05.
+        print_results: If True, prints a summary table to stdout.
+
+    Returns:
+        DataFrame with columns ['step', 'mse', 'ssim', 'flagged'], one row
+        per paint step (excluding the identity/original step at t=∞).
+    """
+    surrogate.eval()
+
+    with torch.no_grad():
+        real_canvases = real_painter_fn(x, output_every, device, actor, renderer)
+        # real_canvases: (B, Steps, 3, H, W) — does NOT include the identity step
+        surrogate_canvases = surrogate(x)
+        # surrogate_canvases: (B, Steps+1, 3, H, W) — includes identity as last step
+
+    # Compare only the non-identity steps.
+    n_real_steps = real_canvases.shape[1]
+    real_np = real_canvases.cpu().numpy()      # (B, Steps, 3, H, W)
+    surr_np = surrogate_canvases[:, :n_real_steps].cpu().numpy()
+
+    rows = []
+    for s in range(n_real_steps):
+        step_real = real_np[:, s]              # (B, 3, H, W)
+        step_surr = surr_np[:, s]
+
+        # Resize surrogate output to real canvas size if they differ.
+        if step_surr.shape != step_real.shape:
+            surr_tensor = torch.tensor(step_surr)
+            real_h, real_w = step_real.shape[-2], step_real.shape[-1]
+            step_surr = F.interpolate(surr_tensor,
+                                      size=(real_h, real_w),
+                                      mode='bilinear',
+                                      align_corners=False).numpy()
+
+        diff = step_surr - step_real
+        mse = float(np.mean(diff ** 2))
+        ssim_vals = [
+            structural_similarity(
+                step_real[i].transpose(1, 2, 0),
+                step_surr[i].transpose(1, 2, 0),
+                data_range=1.0, channel_axis=2)
+            for i in range(step_real.shape[0])
+        ]
+        ssim = float(np.mean(ssim_vals))
+        rows.append({
+            'step': output_every[s],
+            'mse': mse,
+            'ssim': ssim,
+            'flagged': mse > mse_threshold,
+        })
+
+    df = pd.DataFrame(rows)
+
+    if print_results:
+        flagged = df['flagged'].sum()
+        print(f'\nSurrogate quality ({len(df)} steps, MSE threshold={mse_threshold}):')
+        print(df.to_string(index=False, float_format=lambda v: f'{v:.5f}'))
+        if flagged > 0:
+            bad = df[df['flagged']]['step'].tolist()
+            print(f'\nWARNING: {flagged} step(s) exceed MSE threshold: {bad}')
+            print('Consider retraining those surrogates with perceptual (LPIPS) loss.')
+        else:
+            print('\nAll surrogate steps within quality threshold.')
+
+    return df

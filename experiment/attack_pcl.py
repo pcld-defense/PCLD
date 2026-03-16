@@ -5,7 +5,8 @@ import torch
 
 from model.classifier import get_net
 from model.pcld_bpda import BPDAPainter, PCL
-from painter.painter_surrogate import IdentitySurrogate_, PainterSurrogate, load_painter_surrogate
+from painter.painter_surrogate import (IdentitySurrogate_, PainterSurrogate,
+                                        load_painter_surrogate, load_joint_surrogate)
 from painter.painter_utils import load_painter, paint_images
 from util.attacks import attacker
 from util.consts import NUM_OF_HYPHENS, RESOURCES_RESULTS_DIR, RESOURCES_MODELS_DIR, \
@@ -58,9 +59,19 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
     print('-' * NUM_OF_HYPHENS)
     print(f'Load pre-trained painter-surrogates models...')
     surr_local_folder = os.path.join(RESOURCES_MODELS_DIR, 'train_surrogate_painter')
-    painter_surrogates_list = load_painter_surrogate(surr_local_folder, device, output_every=output_every)
-    painter_surrogates_list.append(IdentitySurrogate_().to(device))
-    painter_surrogate = PainterSurrogate(painter_surrogates_list)
+    joint_path: str | None = getattr(args, 'joint_surrogate', None) or None
+    if joint_path:
+        # JointWithIdentity outputs (B, Steps+1, 3, H, W) — same interface
+        # as PainterSurrogate with separate models + IdentitySurrogate_.
+        painter_surrogate = load_joint_surrogate(joint_path, device,
+                                                 num_steps=len(output_every))
+        print(f'  Using JointPainterSurrogate from {joint_path}')
+    else:
+        painter_surrogates_list = load_painter_surrogate(surr_local_folder, device,
+                                                         output_every=output_every)
+        painter_surrogates_list.append(IdentitySurrogate_().to(device))
+        painter_surrogate = PainterSurrogate(painter_surrogates_list)
+        print(f'  Using {len(painter_surrogates_list)} separate PainterSurrogate_ models')
     painter_surrogate.to(device).eval()
 
     print('-' * NUM_OF_HYPHENS)
@@ -88,6 +99,10 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
     save_args_json(args, results_local_dir)
     attack_direction_bool = attack_direction == 'targeted'
     save_parquet = bool(args.save_parquet)
+    nb_restarts: int = getattr(args, 'attack_nb_restarts', 1)
+    use_apgd: bool = bool(getattr(args, 'use_apgd', 0))
+    # PCL already outputs (B*Steps, n_classes); CE across all steps is implicit.
+    # Multi-step loss weight is not applied here — pass loss_fn=None.
     for epsilon in args.epsilons:
         print(f'attack with epsilon {epsilon}/255...')
         for split in splits:
@@ -97,5 +112,7 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
                      device=device, output_dir=results_local_dir,
                      output_type='paints_inference', norm=args.attack_norm,
                      save_parquet=save_parquet,
-                     targeted_jumps_allowed=args.targeted_jumps_allowed)
+                     targeted_jumps_allowed=args.targeted_jumps_allowed,
+                     loss_fn=None, nb_restarts=nb_restarts,
+                     use_apgd=use_apgd)
         print(f'finished attack with epsilon {epsilon}/255!')

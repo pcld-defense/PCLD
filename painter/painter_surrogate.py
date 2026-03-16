@@ -11,6 +11,8 @@ from util.models import load_model
 
 torch.manual_seed(42)
 
+JOINT_SURROGATE_FILENAME = 'joint_surrogate.pth'
+
 
 class PainterSurrogate_(nn.Module):
     """Differentiable surrogate for a single paint-step of the neural painter.
@@ -115,6 +117,153 @@ class PainterSurrogate(torch.nn.Module):
             canvases.append(out)
         canvases = torch.stack(canvases, dim=1)
         return canvases
+
+
+class _StepDecoder(nn.Module):
+    """Upsampling decoder that maps encoder features to a painted-canvas image.
+
+    Identical architecture to the decoder inside ``PainterSurrogate_``, factored
+    out so it can be instantiated once per step inside ``JointPainterSurrogate``.
+    """
+
+    def __init__(self) -> None:
+        super(_StepDecoder, self).__init__()
+        self.upconv1 = nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2,
+                                          padding=1, output_padding=1)
+        self.upconv2 = nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1)
+        self.upconv3 = nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1,
+                                          output_padding=1)
+        self.upconv4 = nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1)
+        self.conv_final = nn.Conv2d(16, 3, kernel_size=27, stride=1, padding=10)
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        """Decodes encoder features into a canvas image.
+
+        Args:
+            features: Encoder output of shape (B, 256, h, w).
+
+        Returns:
+            Canvas of shape (B, 3, H, W) in [0, 1].
+        """
+        x = F.relu(self.upconv1(features))
+        x = F.relu(self.upconv2(x))
+        x = F.relu(self.upconv3(x))
+        x = F.relu(self.upconv4(x))
+        x = self.conv_final(x)
+        return torch.sigmoid(x)
+
+
+class JointPainterSurrogate(nn.Module):
+    """Single-model surrogate covering all paint steps with one shared encoder.
+
+    Replaces the list of 15 independent ``PainterSurrogate_`` models.  The
+    encoder (truncated ResNet18 up to layer3) runs **once** per forward pass
+    and its feature map is fed to a bank of lightweight per-step decoders.
+    This reduces the total surrogate parameter count roughly 7× while keeping
+    the same per-step decoder capacity and producing the same output shape
+    ``(B, Steps, 3, H, W)`` expected by ``BPDAPainterLayer``.
+
+    The identity step (t=∞, always the last step) is **not** modelled here.
+    ``IdentitySurrogate_`` is still appended separately in the attack scripts,
+    matching the existing convention.
+
+    Args:
+        num_steps: Number of paint steps to model (length of ``output_every``).
+    """
+
+    def __init__(self, num_steps: int) -> None:
+        """Creates a shared encoder and one decoder per step.
+
+        Args:
+            num_steps: Number of paint-step decoders to instantiate.
+        """
+        super(JointPainterSurrogate, self).__init__()
+        encoder_base = models.resnet18(weights='IMAGENET1K_V1')
+        self.encoder = nn.Sequential(*list(encoder_base.children())[:-3])
+        self.decoders = nn.ModuleList([_StepDecoder() for _ in range(num_steps)])
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Encodes the input once and decodes into all step canvases.
+
+        Args:
+            x: Input image batch of shape (B, 3, H, W) in [0, 1].
+
+        Returns:
+            Stacked canvas tensor of shape (B, Steps, 3, H, W) in [0, 1].
+        """
+        h, w = x.shape[-2], x.shape[-1]
+        features = self.encoder(x)          # (B, 256, h_enc, w_enc)
+        canvases = []
+        for decoder in self.decoders:
+            out = decoder(features)          # (B, 3, H_dec, W_dec)
+            if out.shape[-2:] != (h, w):
+                out = F.interpolate(out, size=(h, w), mode='bilinear',
+                                    align_corners=False)
+            canvases.append(out)
+        return torch.stack(canvases, dim=1)  # (B, Steps, 3, H, W)
+
+
+class JointWithIdentity(nn.Module):
+    """Wraps a JointPainterSurrogate and appends the identity step.
+
+    ``JointPainterSurrogate`` outputs ``(B, Steps, 3, H, W)`` for the
+    non-identity paint steps. This wrapper concatenates the original image
+    (the identity/t=∞ step) along the step dimension, producing
+    ``(B, Steps+1, 3, H, W)`` — the same shape returned by ``PainterSurrogate``
+    when used with separate per-step models + ``IdentitySurrogate_``.
+
+    This is passed directly as ``grad_approx_net`` to ``BPDAPainter`` in place
+    of ``PainterSurrogate``, with no other changes to the attack pipeline.
+    """
+
+    def __init__(self, joint: JointPainterSurrogate) -> None:
+        """Wraps the joint model.
+
+        Args:
+            joint: Trained JointPainterSurrogate.
+        """
+        super(JointWithIdentity, self).__init__()
+        self.joint = joint
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Runs the joint model and appends the original image as the last step.
+
+        Args:
+            x: Input image batch of shape (B, 3, H, W) in [0, 1].
+
+        Returns:
+            Canvas tensor of shape (B, Steps+1, 3, H, W) in [0, 1].
+        """
+        canvases = self.joint(x)                   # (B, Steps, 3, H, W)
+        identity = x.unsqueeze(1)                  # (B, 1, 3, H, W)
+        return torch.cat([canvases, identity], dim=1)   # (B, Steps+1, 3, H, W)
+
+
+def load_joint_surrogate(path: str, device: str,
+                         num_steps: int) -> JointWithIdentity:
+    """Loads a trained JointPainterSurrogate from disk.
+
+    Args:
+        path: Full path to the ``joint_surrogate.pth`` checkpoint file.
+        device: Target device string.
+        num_steps: Number of paint steps the model was trained with
+            (must match ``len(output_every)`` used during training).
+
+    Returns:
+        ``JointWithIdentity`` wrapper (eval mode, on ``device``) that outputs
+        ``(B, Steps+1, 3, H, W)`` — identical interface to ``PainterSurrogate``
+        with separate models + ``IdentitySurrogate_``.
+
+    Raises:
+        FileNotFoundError: If the checkpoint file does not exist at ``path``.
+    """
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            f'Joint surrogate not found at {path}. '
+            f'Run train_surrogate_painter with --joint_surrogate <path> first.')
+    joint = JointPainterSurrogate(num_steps=num_steps)
+    joint = load_model(joint, path, device)
+    return JointWithIdentity(joint).to(device).eval()
 
 
 def load_painter_surrogate(models_folder: str, device: str,

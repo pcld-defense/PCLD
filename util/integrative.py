@@ -118,6 +118,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--targeted_jumps_allowed', '-tja', type=int, required=False, default=6,
                         help='max random class offset for targeted attack label generation; '
                              'use 6 for ImageNet (1000 classes), 1 for CIFAR-10 (10 classes)')
+    parser.add_argument('--attack_nb_restarts', '-anr', type=int, required=False, default=1,
+                        help='number of random PGD restarts; the adversarial example with '
+                             'the highest loss is kept. Default 1 (no restarts).')
+    parser.add_argument('--multi_step_loss_weight', '-msl', type=float, required=False, default=0.0,
+                        help='weight λ for the intermediate per-step cross-entropy loss added '
+                             'to the decisioner CE in the PCLD attack. 0.0 disables it. '
+                             'Recommended range: 0.1–0.5.')
+    parser.add_argument('--eot_samples', '-eot', type=int, required=False, default=1,
+                        help='number of EOT gradient samples to average per PGD step. '
+                             '1 = no EOT (default). Higher values reduce surrogate '
+                             'approximation noise at the cost of runtime.')
+    parser.add_argument('--use_apgd', '-apgd', type=int, required=False, default=0,
+                        help='1 = enable APGD adaptive step-size schedule for PGD '
+                             '(halves alpha when loss stalls). 0 = fixed step size (default).')
+    parser.add_argument('--resume', '-res', type=int, required=False, default=0,
+                        help='1 = resume training from an existing checkpoint (used by '
+                             'train_surrogate_painter). 0 = start fresh (default).')
+    parser.add_argument('--joint_surrogate', '-js', type=str, required=False, default=None,
+                        help='Path to a JointPainterSurrogate .pth file. When provided, '
+                             'the joint model at that path is used/saved instead of separate '
+                             'per-step PainterSurrogate_ models. Omit (default) to use separate models.')
 
     parsed = parser.parse_args()
 

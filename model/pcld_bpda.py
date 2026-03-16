@@ -14,20 +14,29 @@ class BPDAPainterLayer(torch.autograd.Function):
 
     During the forward pass the real (non-differentiable) painter is called to
     produce canvases. During the backward pass a differentiable surrogate painter
-    is used to approximate the Jacobian, enabling gradient-based attacks to
-    propagate through the rendering step.
+    is used to compute a Jacobian-vector product (JVP) that approximates the true
+    painter gradient, enabling gradient-based attacks to propagate through the
+    non-differentiable rendering step (Athalye et al., ICML 2018).
 
-    Class attributes are used to cache state across forward/backward calls
-    within a single attack iteration:
-        _stored_non_diff_layer: Cached canvas tensor from the previous forward
-            pass, used to avoid re-painting when EOT outer loops reuse canvases.
-        _stored_grad_output: Gradient of the loss with respect to the canvas,
-            stored after each backward so the next forward can perturb the canvas
-            directly (canvas-level attack variant).
+    Class attributes cache state across forward/backward calls within a single
+    attack iteration:
+        _stored_non_diff_layer: Cached canvas tensor (canvas-level attack variant).
+        _stored_grad_output: Upstream gradient stored for the canvas-level
+            perturbation step.
     """
 
     _stored_non_diff_layer = None
     _stored_grad_output = None
+
+    @classmethod
+    def reset(cls) -> None:
+        """Clears all cached state.
+
+        Must be called at the start of each new batch and at the start of each
+        random restart to prevent stale canvases from contaminating new iterates.
+        """
+        cls._stored_non_diff_layer = None
+        cls._stored_grad_output = None
 
     @staticmethod
     def forward(ctx, input: torch.Tensor, non_diff_layer, grad_approx_net,
@@ -42,8 +51,8 @@ class BPDAPainterLayer(torch.autograd.Function):
             non_diff_layer: Either a PainterSurrogate (used as a fast
                 differentiable approximation), a pre-computed canvas tensor
                 (used to skip repainting), or the real paint_images callable.
-            grad_approx_net: The surrogate model or canvas tensor used in the
-                backward pass to approximate gradients.
+            grad_approx_net: The surrogate model used in the backward pass to
+                approximate the painter Jacobian via a JVP.
             output_every: Stroke-count checkpoints at which canvases are saved.
             device: Target device string (e.g. 'cuda').
             actor: ActorResNet stroke-parameter predictor.
@@ -76,25 +85,43 @@ class BPDAPainterLayer(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor):
-        """Approximates the painter gradient via the surrogate network.
+        """Approximates the painter gradient via a surrogate Jacobian-vector product.
+
+        Implements BPDA (Athalye et al. 2018): replaces the non-differentiable
+        painter's true Jacobian with the surrogate's Jacobian during backprop.
+        The JVP ``d(surrogate(x))/dx · grad_output`` is computed via
+        ``torch.autograd.grad``, giving a proper chain-rule approximation of
+        ``dL/dx ≈ dL/d(canvas) · d(surrogate)/dx``.
 
         Args:
             grad_output: Upstream gradient of shape (B, Steps, 3, H, W).
 
         Returns:
             Tuple of gradients matching the forward inputs. Only the gradient
-            w.r.t. `input` is non-None; all others are None.
+            w.r.t. ``input`` is non-None; all others are None.
         """
         input, = ctx.saved_tensors
         grad_approx_net = ctx.grad_approx_net
-        if isinstance(grad_approx_net, torch.Tensor):
-            approx_grad = grad_approx_net.detach()
-        else:
-            grad_approx_net.eval()
-            with torch.no_grad():
-                approx_grad = grad_approx_net(input)
-        new_grad_input = (grad_output * approx_grad).mean(dim=1)
         BPDAPainterLayer._stored_grad_output = grad_output
+
+        if isinstance(grad_approx_net, torch.Tensor):
+            # Canvas-level attack: no surrogate network; gradient approximation
+            # degenerates to the stored canvas tensor (legacy path).
+            new_grad_input = grad_output.mean(dim=1)
+        else:
+            # Standard BPDA: compute JVP through the surrogate.
+            # Re-run the surrogate with a fresh requires_grad leaf so autograd
+            # can differentiate through it, then chain grad_output via autograd.grad.
+            grad_approx_net.eval()
+            x_for_grad = input.detach().requires_grad_(True)
+            with torch.enable_grad():
+                surrogate_out = grad_approx_net(x_for_grad)  # (B, Steps, 3, H, W)
+            new_grad_input = torch.autograd.grad(
+                surrogate_out, x_for_grad,
+                grad_outputs=grad_output,
+                retain_graph=False,
+            )[0]
+
         return new_grad_input, None, None, None, None, None, None, None, None
 
 

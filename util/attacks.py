@@ -1,23 +1,161 @@
 import os
 import random
 import time
+from typing import Callable, Optional
 
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn.functional as F
 from autoattack import AutoAttack
 from cleverhans.torch.attacks.fast_gradient_method import fast_gradient_method
-from cleverhans.torch.attacks.projected_gradient_descent import projected_gradient_descent
+
+from model.pcld_bpda import BPDAPainterLayer
+
+
+def pgd_with_multi_step_loss(
+        model: torch.nn.Module,
+        x: torch.Tensor,
+        epsilon: float,
+        nb_iter: int,
+        targeted: bool,
+        y: torch.Tensor,
+        loss_fn: Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
+        nb_restarts: int = 1,
+        use_apgd: bool = False,
+        norm: str = 'linf',
+) -> torch.Tensor:
+    """PGD attack with optional APGD step schedule, random restarts, and custom loss.
+
+    Replaces the CleverHans PGD implementation for the ``'pgd'`` attack path.
+    Key improvements over vanilla PGD:
+
+    * **Custom loss function** — accepts any ``loss_fn(x_adv, y) -> scalar``
+      callable, enabling multi-step intermediate losses for PCLD without
+      changing model forward signatures.
+    * **APGD step schedule** — when ``use_apgd=True``, halves the step size
+      whenever the loss does not improve for ``checkfreq = max(nb_iter//10, 10)``
+      consecutive iterations, matching Croce & Hein (ICML 2020).
+    * **Random restarts** — when ``nb_restarts > 1``, runs PGD from independent
+      random starting points and keeps the adversarial example with the highest
+      loss (evaluated with ``model.eval()``).
+    * **State reset** — calls ``BPDAPainterLayer.reset()`` before every restart
+      and at the start of each new batch to prevent stale canvas contamination.
+
+    Args:
+        model: The model to attack; must accept ``(B, 3, H, W)`` input.
+        x: Clean input batch of shape ``(B, 3, H, W)`` in ``[0, 1]``.
+        epsilon: Perturbation budget in ``[0, 1]`` (already divided by 255).
+        nb_iter: Number of PGD iterations per restart.
+        targeted: If True, minimises the loss toward the target; if False,
+            maximises the loss away from the true class.
+        y: Label tensor of shape ``(B,)``; target classes for targeted attacks
+            or true classes for untargeted attacks.
+        loss_fn: Optional callable ``loss_fn(x_adv, y) -> scalar``.  When None,
+            falls back to standard cross-entropy via ``model(x_adv)`` logits.
+        nb_restarts: Number of random restarts. The adversarial example with
+            the highest untargeted loss (or lowest targeted loss) is returned.
+        use_apgd: If True, applies the APGD adaptive step-size schedule.
+        norm: Perturbation norm; only ``'linf'`` is currently supported.
+
+    Returns:
+        Best adversarial example batch of shape ``(B, 3, H, W)`` in ``[0, 1]``.
+    """
+    model.eval()
+
+    # Initial step size: 2 * epsilon / nb_iter (Croce & Hein 2020 convention).
+    alpha_init = 2.0 * epsilon / nb_iter
+    sign = -1.0 if targeted else 1.0
+
+    best_x_adv = x.clone()
+    best_loss = torch.full((x.shape[0],), -float('inf'), device=x.device)
+
+    for _restart in range(nb_restarts):
+        # Reset BPDA state so stale canvases from the previous restart don't
+        # contaminate this restart's first forward pass.
+        BPDAPainterLayer.reset()
+
+        # Random initialisation within the ε-ball.
+        delta = torch.zeros_like(x).uniform_(-epsilon, epsilon)
+        x_adv = torch.clamp(x + delta, 0.0, 1.0).detach()
+
+        alpha = alpha_init
+        checkfreq = max(nb_iter // 10, 10)
+        no_improve_count = 0
+        prev_best_loss_val = -float('inf')
+
+        for step in range(nb_iter):
+            x_adv = x_adv.requires_grad_(True)
+
+            if loss_fn is not None:
+                loss = loss_fn(x_adv, y)
+            else:
+                logits = model(x_adv)
+                loss = F.cross_entropy(logits, y, reduction='sum')
+
+            # Maximise loss for untargeted; minimise for targeted.
+            (sign * loss).backward()
+
+            with torch.no_grad():
+                grad = x_adv.grad.data
+                x_adv = x_adv.detach() + alpha * grad.sign()
+                # Project back into ε-ball and image range.
+                x_adv = torch.min(torch.max(x_adv, x - epsilon), x + epsilon)
+                x_adv = torch.clamp(x_adv, 0.0, 1.0)
+
+            # APGD step-size adaptation.
+            if use_apgd and (step + 1) % checkfreq == 0:
+                current_loss = loss.item()
+                if current_loss <= prev_best_loss_val:
+                    no_improve_count += 1
+                    alpha = max(alpha / 2.0, epsilon / nb_iter)
+                else:
+                    no_improve_count = 0
+                    prev_best_loss_val = current_loss
+
+        # Evaluate this restart's final adversarial example to pick the best.
+        # Always reduce to per-IMAGE loss (x.shape[0] == B) so that the
+        # comparison and where() call work correctly even when y has been
+        # repeated to (B*Steps,) for PCL's paints_inference path.
+        B = x.shape[0]
+        with torch.no_grad():
+            if loss_fn is not None:
+                raw_loss = loss_fn(x_adv, y)
+                restart_loss = raw_loss.expand(B) if raw_loss.dim() == 0 else raw_loss[:B]
+            else:
+                logits = model(x_adv)
+                per_sample = F.cross_entropy(logits, y, reduction='none')
+                if per_sample.shape[0] > B:
+                    # PCL: (B*Steps,) → mean over steps → (B,)
+                    steps = per_sample.shape[0] // B
+                    restart_loss = per_sample.view(B, steps).mean(dim=1)
+                else:
+                    restart_loss = per_sample  # (B,)
+
+        # For targeted attacks the loss is minimised, so invert for comparison.
+        cmp_loss = restart_loss if not targeted else -restart_loss
+
+        improved = cmp_loss > best_loss
+        best_x_adv = torch.where(
+            improved.view(-1, 1, 1, 1).expand_as(x_adv),
+            x_adv, best_x_adv)
+        best_loss = torch.where(improved, cmp_loss, best_loss)
+
+    return best_x_adv.detach()
 
 
 def attack_batch(model: torch.nn.Module, x: torch.Tensor, attack: str,
                  epsilon: float, attack_nb_iter: int, targeted: bool,
                  y_classes_targeted: torch.Tensor,
-                 norm: str = 'linf') -> torch.Tensor:
+                 norm: str = 'linf',
+                 loss_fn: Optional[Callable] = None,
+                 nb_restarts: int = 1,
+                 use_apgd: bool = False) -> torch.Tensor:
     """Generates adversarial examples for a single batch using the chosen attack.
 
     When epsilon is 0 the input is returned unchanged. Supported attacks:
-    'fgsm' (single-step), 'pgd' (multi-step), and 'aa' (AutoAttack).
+    'fgsm' (single-step via CleverHans), 'pgd' (multi-step, custom loop),
+    and 'aa' (AutoAttack).
 
     Args:
         model: The model to attack; must accept (B, 3, H, W) input.
@@ -30,6 +168,13 @@ def attack_batch(model: torch.nn.Module, x: torch.Tensor, attack: str,
         y_classes_targeted: Label tensor of shape (B,) with target class indices
             for targeted attacks or true class indices for untargeted attacks.
         norm: Perturbation norm; 'linf' or 'l2'.
+        loss_fn: Optional custom loss callable passed to ``pgd_with_multi_step_loss``.
+            Only used when ``attack='pgd'``. When None, cross-entropy on the
+            model's direct output is used.
+        nb_restarts: Number of random restarts for PGD. Only used when
+            ``attack='pgd'``.
+        use_apgd: If True, apply the APGD step-size adaptation schedule for
+            PGD. Only used when ``attack='pgd'``.
 
     Returns:
         Adversarial example batch of shape (B, 3, H, W) in [0, 1].
@@ -49,18 +194,20 @@ def attack_batch(model: torch.nn.Module, x: torch.Tensor, attack: str,
                                      clip_min=0,
                                      clip_max=1)
     elif attack == 'pgd':
-        x_adv = projected_gradient_descent(model_fn=model,
-                                           x=x,
-                                           eps=epsilon,
-                                           eps_iter=epsilon / attack_nb_iter,
-                                           nb_iter=attack_nb_iter,
-                                           norm=norm_val,
-                                           y=y_classes_targeted,
-                                           targeted=targeted,
-                                           rand_init=False,
-                                           sanity_checks=False,
-                                           clip_min=0,
-                                           clip_max=1)
+        # Reset BPDA state at the start of each new batch.
+        BPDAPainterLayer.reset()
+        x_adv = pgd_with_multi_step_loss(
+            model=model,
+            x=x,
+            epsilon=epsilon,
+            nb_iter=attack_nb_iter,
+            targeted=targeted,
+            y=y_classes_targeted,
+            loss_fn=loss_fn,
+            nb_restarts=nb_restarts,
+            use_apgd=use_apgd,
+            norm=norm,
+        )
     elif attack == 'aa':
         aa_norm = 'Linf' if norm == 'linf' else 'L2'
         adv_attack = AutoAttack(model, norm=aa_norm, eps=epsilon, version='standard')
@@ -167,7 +314,10 @@ def attacker(experiment: str, dataset: str, attack: str,
              classes: list[str], attack_nb_iter: int, device: str,
              output_dir: str, output_type: str = 'final_decision',
              norm: str = 'linf', save_parquet: bool = True,
-             targeted_jumps_allowed: int = 6) -> pd.DataFrame:
+             targeted_jumps_allowed: int = 6,
+             loss_fn: Optional[Callable] = None,
+             nb_restarts: int = 1,
+             use_apgd: bool = False) -> pd.DataFrame:
     """Runs adaptive and (optionally) naïve attacks over an entire data loader.
 
     For each batch:
@@ -218,6 +368,13 @@ def attacker(experiment: str, dataset: str, attack: str,
             For untargeted attacks this value is unused. Default is 6, which
             is reasonable for ImageNet (1000 classes); use a smaller value
             (e.g. 1) for CIFAR-10 (10 classes).
+        loss_fn: Optional custom loss callable passed to attack_batch for the
+            PGD attack path. When None, standard cross-entropy on the model's
+            direct output is used. Use this to inject multi-step intermediate
+            losses for the PCLD pipeline.
+        nb_restarts: Number of random restarts for PGD. Default 1 (no restarts).
+        use_apgd: If True, apply the APGD step-size adaptation schedule. Only
+            effective when ``attack='pgd'``.
 
     Returns:
         DataFrame with one row per (image × paint step × attack type).
@@ -268,7 +425,9 @@ def attacker(experiment: str, dataset: str, attack: str,
         t0 = time.time()
         x_adv_adaptive = attack_batch(adaptive_model, x, attack, epsilon_real,
                                       attack_nb_iter, targeted, y_adaptive_attack,
-                                      norm=norm)
+                                      norm=norm, loss_fn=loss_fn,
+                                      nb_restarts=nb_restarts,
+                                      use_apgd=use_apgd)
         adaptive_attack_time = time.time() - t0
 
         # --- Defence inference (always with adaptive_model) ---
