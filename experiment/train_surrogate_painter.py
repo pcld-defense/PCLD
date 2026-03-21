@@ -1,6 +1,7 @@
 import argparse
 import os
 
+import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -8,8 +9,7 @@ from torch.optim import Adam
 from torchvision import models
 from tqdm import tqdm
 
-from painter.painter_surrogate import (
-    PainterSurrogate_, JointPainterSurrogate, JOINT_SURROGATE_FILENAME)
+from painter.painter_surrogate import PainterSurrogate_, JointPainterSurrogate
 from painter.painter_utils import load_painter, paint_images
 from util.consts import (NUM_OF_HYPHENS, RESOURCES_MODELS_DIR,
                          ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH,
@@ -216,6 +216,11 @@ def _train_joint_surrogate(
     val_split   = splits[1] if len(splits) > 1 else None
     best_val_mse = float('inf')
 
+    plot_path = os.path.join(os.path.dirname(os.path.abspath(save_path)),
+                             'joint_surrogate_loss.png')
+    train_mses: list[float] = []
+    val_mses: list[float] = []
+
     for epoch in range(max_epochs):
         # ---- Training ----
         model.train()
@@ -242,9 +247,11 @@ def _train_joint_surrogate(
             n_batches += 1
 
         avg_train_mse = train_loss / max(n_batches, 1)
+        train_mses.append(avg_train_mse)
 
         # ---- Validation ----
         val_mse_str = ''
+        avg_val_mse = None
         if val_split is not None:
             model.eval()
             val_loss = 0.0
@@ -259,6 +266,7 @@ def _train_joint_surrogate(
                     val_loss += F.mse_loss(preds, targets).item()
                     v_batches += 1
             avg_val_mse = val_loss / max(v_batches, 1)
+            val_mses.append(avg_val_mse)
             val_mse_str = f'  val_mse={avg_val_mse:.6f}'
 
             if avg_val_mse < best_val_mse:
@@ -271,7 +279,21 @@ def _train_joint_surrogate(
         print(f'  joint | epoch {epoch}/{max_epochs - 1} | '
               f'train_mse={avg_train_mse:.6f}{val_mse_str}')
 
+        # ---- Plot ----
+        epochs_axis = list(range(len(train_mses)))
+        fig, ax = plt.subplots()
+        ax.plot(epochs_axis, train_mses, label='train')
+        if val_mses:
+            ax.plot(epochs_axis, val_mses, label='val')
+        ax.set_xlabel('Epoch')
+        ax.set_ylabel('MSE')
+        ax.set_title('Joint surrogate loss')
+        ax.legend()
+        fig.savefig(plot_path)
+        plt.close(fig)
+
     print(f'  Joint surrogate saved to {save_path}')
+    print(f'  Loss plot saved to {plot_path}')
 
 
 def main_train_surrogate_painter(args: argparse.Namespace, device: str) -> None:
@@ -299,7 +321,7 @@ def main_train_surrogate_painter(args: argparse.Namespace, device: str) -> None:
             joint_surrogate (path string or None), resume (default 0).
         device: Target device string resolved by main.py.
     """
-    joint_path: str | None = getattr(args, 'joint_surrogate', None) or None
+    joint_path = getattr(args, 'joint_surrogate', None) or None
     joint: bool = joint_path is not None
     resume: bool = bool(getattr(args, 'resume', 0))
 

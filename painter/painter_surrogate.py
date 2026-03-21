@@ -11,8 +11,6 @@ from util.models import load_model
 
 torch.manual_seed(42)
 
-JOINT_SURROGATE_FILENAME = 'joint_surrogate.pth'
-
 
 class PainterSurrogate_(nn.Module):
     """Differentiable surrogate for a single paint-step of the neural painter.
@@ -192,10 +190,10 @@ class JointPainterSurrogate(nn.Module):
             Stacked canvas tensor of shape (B, Steps, 3, H, W) in [0, 1].
         """
         h, w = x.shape[-2], x.shape[-1]
-        features = self.encoder(x)          # (B, 256, h_enc, w_enc)
+        features = self.encoder(x)  # (B, 256, h_enc, w_enc)
         canvases = []
         for decoder in self.decoders:
-            out = decoder(features)          # (B, 3, H_dec, W_dec)
+            out = decoder(features)  # (B, 3, H_dec, W_dec)
             if out.shape[-2:] != (h, w):
                 out = F.interpolate(out, size=(h, w), mode='bilinear',
                                     align_corners=False)
@@ -234,9 +232,9 @@ class JointWithIdentity(nn.Module):
         Returns:
             Canvas tensor of shape (B, Steps+1, 3, H, W) in [0, 1].
         """
-        canvases = self.joint(x)                   # (B, Steps, 3, H, W)
-        identity = x.unsqueeze(1)                  # (B, 1, 3, H, W)
-        return torch.cat([canvases, identity], dim=1)   # (B, Steps+1, 3, H, W)
+        canvases = self.joint(x)  # (B, Steps, 3, H, W)
+        identity = x.unsqueeze(1)  # (B, 1, 3, H, W)
+        return torch.cat([canvases, identity], dim=1)  # (B, Steps+1, 3, H, W)
 
 
 def load_joint_surrogate(path: str, device: str,
