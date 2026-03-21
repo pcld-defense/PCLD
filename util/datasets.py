@@ -106,7 +106,7 @@ def create_ds_loader(path: str, transform: transforms.Compose,
     """
     ds = ImageFolderWithPaths(path, transform=transform)
     loader = torch.utils.data.DataLoader(ds, batch_size=batch_size, shuffle=shuffle,
-                                         num_workers=num_workers, pin_memory=True)
+                                         num_workers=num_workers, pin_memory=False)
     return ds, loader
 
 
