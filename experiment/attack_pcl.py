@@ -63,7 +63,7 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
     print('-' * NUM_OF_HYPHENS)
     print(f'Load pre-trained painter-surrogates models...')
     surr_local_folder = os.path.join(RESOURCES_MODELS_DIR, 'train_surrogate_painter')
-    joint_path: str | None = getattr(args, 'joint_surrogate', None) or None
+    joint_path = getattr(args, 'joint_surrogate', None) or None
     if joint_path:
         # JointWithIdentity outputs (B, Steps+1, 3, H, W) — same interface
         # as PainterSurrogate with separate models + IdentitySurrogate_.
