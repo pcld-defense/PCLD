@@ -35,6 +35,10 @@ class IMAGENETConsts:
                                        transforms.Normalize(mean=MEAN, std=STD)]),
         None: transforms.Compose([transforms.ToTensor(),
                                   transforms.Normalize(mean=MEAN, std=STD)]),
+        'ToTensorOnly': transforms.Compose([
+            transforms.Resize([224, 224]),
+            transforms.ToTensor(),
+        ]),
         'Res224': transforms.Compose([
             transforms.Resize([224, 224]),
             transforms.ToTensor(),

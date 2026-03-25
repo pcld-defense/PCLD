@@ -4,6 +4,7 @@ import os
 import torch
 
 from model.classifier import get_net
+from model.normalized_model import NormalizedModel
 from model.pcld_bpda import BPDAPainter, PCL
 from painter.painter_surrogate import (IdentitySurrogate_, PainterSurrogate,
                                         load_painter_surrogate, load_joint_surrogate)
@@ -45,8 +46,11 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
          args.output_every, args.classifier_experiment, args.attack, args.attack_direction, args.attack_nb_iter,
          args.run_naive_attack, args.epsilons)
 
+    # RobustBench convention: DataLoader returns [0, 1] (no normalization).
+    # The classifier normalizes internally via NormalizedModel wrapper.
+    # This ensures attack clip bounds (0, 1) match the actual input range.
     split_transform = transform_dataset(dataset_type=dataset_type,
-                                        preprocessing=args.preprocessing)
+                                        preprocessing='ToTensorOnly')
     transform_dict = {split: split_transform for split in splits}
 
     loaders = get_loaders(dataset, splits, transform_dict, batch_size)
@@ -59,7 +63,7 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
     print('-' * NUM_OF_HYPHENS)
     print(f'Load pre-trained painter-surrogates models...')
     surr_local_folder = os.path.join(RESOURCES_MODELS_DIR, 'train_surrogate_painter')
-    joint_path: str | None = getattr(args, 'joint_surrogate', None) or None
+    joint_path = getattr(args, 'joint_surrogate', None) or None
     if joint_path:
         # JointWithIdentity outputs (B, Steps+1, 3, H, W) — same interface
         # as PainterSurrogate with separate models + IdentitySurrogate_.
@@ -80,14 +84,19 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
     clf = get_net(dataset_type, device, model_type, clf_local_path)
     clf.eval()
 
+    # Wrap classifier with internal normalization (RobustBench convention).
+    # The classifier was trained with transforms.Normalize in the DataLoader,
+    # so its weights expect normalised input.  NormalizedModel moves the
+    # normalization inside the model so attacks operate in [0, 1] pixel space.
     consts = CIFAR10Consts if dataset_type == 'cifar10' else IMAGENETConsts
-    norm_mean = torch.tensor(consts.MEAN)
-    norm_std  = torch.tensor(consts.STD)
+    clf = NormalizedModel(clf, consts.MEAN, consts.STD).to(device).eval()
 
     print('-' * NUM_OF_HYPHENS)
     print(f'Creating PCL BPDA model...')
+    # mean=None: input is already [0, 1], painter works in [0, 1],
+    # NormalizedModel(clf) handles normalisation of canvases internally.
     painter = BPDAPainter(paint_images, painter_surrogate, output_every, device, actor, renderer,
-                          mean=norm_mean, std=norm_std).to(device).eval()
+                          mean=None, std=None).to(device).eval()
     pcl = PCL(painter, clf).to(device).eval()
 
     if torch.cuda.device_count() > 1:

@@ -8,6 +8,7 @@ from torchvision import models
 import torch.nn as nn
 
 from model.decisioner import Decisioner1DConv, DecisionerFC
+from model.normalized_model import NormalizedModel
 from painter.painter_surrogate import (IdentitySurrogate_, PainterSurrogate,
                                         load_painter_surrogate, load_joint_surrogate)
 from painter.painter_utils import load_painter, paint_images
@@ -55,8 +56,10 @@ def main_attack_pcld(args: argparse.Namespace, device: str) -> None:
     n_classes = len(IMAGENET_2012_LABELS.keys())
     classes = sorted(IMAGENET_2012_LABELS.values())
 
+    # RobustBench convention: DataLoader returns [0, 1] (no normalization).
+    # The classifier normalizes internally via NormalizedModel wrapper.
     split_transform = transform_dataset(dataset_type=args.dataset_type,
-                                        preprocessing=args.preprocessing)
+                                        preprocessing='ToTensorOnly')
     transform_dict = {split: split_transform for split in args.splits}
     loaders = get_loaders(dataset, args.splits, transform_dict, batch_size)
 
@@ -88,6 +91,10 @@ def main_attack_pcld(args: argparse.Namespace, device: str) -> None:
     clf = load_model(clf, clf_local_path, device)
     clf.eval()
 
+    # Wrap classifier with internal normalization (RobustBench convention).
+    consts = CIFAR10Consts if args.dataset_type == 'cifar10' else IMAGENETConsts
+    clf = NormalizedModel(clf, consts.MEAN, consts.STD).to(device).eval()
+
     print('-' * NUM_OF_HYPHENS)
     print(f'Load pre-trained decisioner model...')
     decisioner_local_path = os.path.join(RESOURCES_MODELS_DIR, decisioner_experiment, 'model.pth')
@@ -107,13 +114,10 @@ def main_attack_pcld(args: argparse.Namespace, device: str) -> None:
     cld = cld.to(device)
     cld.eval()
 
-    consts = CIFAR10Consts if args.dataset_type == 'cifar10' else IMAGENETConsts
-    norm_mean = torch.tensor(consts.MEAN)
-    norm_std  = torch.tensor(consts.STD)
-
     print(f'Creating PCLD BPDA model...')
+    # mean=None: input is [0, 1], NormalizedModel(clf) handles normalization.
     bpda_painter = BPDAPainter(paint_images, painter_surrogate, output_every, device, actor, renderer,
-                               mean=norm_mean, std=norm_std).to(device).eval()
+                               mean=None, std=None).to(device).eval()
     pcld = PCLD(bpda_painter, clf, decisioner, num_paint_steps, decisioner_architecture).to(device).eval()
     print(f'finished creating PCLD BPDA model!')
 
