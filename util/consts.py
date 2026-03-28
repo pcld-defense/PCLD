@@ -88,6 +88,6 @@ class CIFAR10Consts:
 
 
 class PainterConsts:
-    MAX_STEP = 80
+    MAX_STEP = 40
     WIDTH = 128
-    DIVIDE = 5
+    DIVIDE = 1

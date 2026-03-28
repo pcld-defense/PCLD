@@ -79,6 +79,44 @@ class IdentitySurrogate_(nn.Module):
         return x
 
 
+class AllIdentitySurrogate(nn.Module):
+    """Straight-through surrogate that broadcasts the input across all paint steps.
+
+    When used as ``grad_approx_net`` in ``BPDAPainterLayer``, the backward pass
+    computes ``d(surrogate)/d(x) = I`` for every step (straight-through
+    estimator). The resulting input gradient is the sum of the upstream
+    gradients across all paint steps, with no surrogate network involved.
+
+    This is the correct non-BPDA baseline: the forward pass uses the real
+    (non-differentiable) painter while the backward uses a straight-through
+    approximation instead of a learned surrogate Jacobian.
+    """
+
+    def __init__(self, num_steps: int) -> None:
+        """Stores the total number of paint steps (including t=∞).
+
+        Args:
+            num_steps: Total number of steps the real painter outputs,
+                i.e. ``len(output_every) + 1`` (the +1 is for the original
+                image appended as t=999999).
+        """
+        super(AllIdentitySurrogate, self).__init__()
+        self.num_steps = num_steps
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Returns x tiled across the step dimension.
+
+        Args:
+            x: Input image batch of shape (B, 3, H, W).
+
+        Returns:
+            Tensor of shape (B, num_steps, 3, H, W) where every step is a
+            contiguous copy of x, enabling autograd to sum upstream gradients
+            back to x via the straight-through estimator.
+        """
+        return x.unsqueeze(1).expand(-1, self.num_steps, -1, -1, -1).contiguous()
+
+
 class PainterSurrogate(torch.nn.Module):
     """Aggregates multiple per-step surrogates into a single differentiable painter.
 

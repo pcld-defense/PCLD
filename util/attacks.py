@@ -401,15 +401,17 @@ def attacker(experiment: str, dataset: str, attack: str,
             y_target = (y + jumps) % n_classes
         else:
             y_target = y
+
         y_classes_targeted = y_target.cpu().numpy().tolist()
 
-        # For PCL (paints_inference) the model outputs (B*Steps, n_classes);
-        # repeat labels to match. Naive model (clf) always outputs (B, n_classes).
+        # For PCL (paints_inference) both the adaptive and naive models output
+        # (B*Steps, n_classes); repeat labels to match.
         if output_type == 'paints_inference':
             y_adaptive_attack = y_target.repeat_interleave(paint_steps)
+            y_naive_attack = y_adaptive_attack
         else:
             y_adaptive_attack = y_target
-        y_naive_attack = y_target
+            y_naive_attack = y_target
 
         # --- Naïve attack ---
         x_adv_naive = x
@@ -418,7 +420,9 @@ def attacker(experiment: str, dataset: str, attack: str,
             t0 = time.time()
             x_adv_naive = attack_batch(naive_model, x, attack, epsilon_real,
                                        attack_nb_iter, targeted, y_naive_attack,
-                                       norm=norm)
+                                       norm=norm, loss_fn=loss_fn,
+                                      nb_restarts=nb_restarts,
+                                      use_apgd=use_apgd)
             naive_attack_time = time.time() - t0
 
         # --- Adaptive BPDA attack ---

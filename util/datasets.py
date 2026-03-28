@@ -132,7 +132,7 @@ def get_loaders(dataset: str, splits: Union[list, str],
     for split in splits:
         path = os.path.join(ds_local_dir, split)
         ds, loader = create_ds_loader(path=path, transform=transform_dict[split],
-                                      batch_size=batch_size, num_workers=4)
+                                      batch_size=batch_size, num_workers=0)
         loaders[split] = [ds, loader]
         print(f'{split} batches {len(loader)} size {len(ds)}')
 
