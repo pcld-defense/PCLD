@@ -184,6 +184,61 @@ def load_images(data_dir: str, width: int, max_images: int = 50000) -> torch.Ten
     return torch.stack(images) if images else torch.empty(0)
 
 
+# ── Validation ────────────────────────────────────────────────────────────
+
+@torch.inference_mode()
+def _evaluate_painting(actor: ActorResNet, renderer: RendererFCN,
+                       env: PaintEnv, val_images: torch.Tensor,
+                       width: int, device: str, max_step: int,
+                       max_val_batches: int = 5) -> float:
+    """Paints validation images and returns mean MSE to targets.
+
+    Args:
+        actor: Actor in eval mode.
+        renderer: Trained renderer.
+        env: Painting environment (reused for coord grids).
+        val_images: Held-out images (N, 3, W, W) in [0, 1].
+        width: Canvas resolution.
+        device: Torch device.
+        max_step: Number of painting steps.
+        max_val_batches: Max batches to evaluate (caps compute).
+
+    Returns:
+        Mean MSE distance between final canvases and targets.
+    """
+    actor.eval()
+    batch_size = min(len(val_images), env.batch_size)
+    total_dist = 0.0
+    n_batches = 0
+
+    for start in range(0, len(val_images), batch_size):
+        if n_batches >= max_val_batches:
+            break
+        batch = val_images[start:start + batch_size].to(device)
+        if len(batch) < 2:
+            continue  # skip tiny batches (BatchNorm needs >1)
+
+        # Paint the batch
+        canvas = torch.zeros_like(batch)
+        T = torch.ones(len(batch), 1, width, width, device=device)
+        i_g = torch.linspace(0, 1, width, device=device).view(-1, 1).repeat(1, width)
+        j_g = torch.linspace(0, 1, width, device=device).view(1, -1).repeat(width, 1)
+        coord = torch.stack([i_g, j_g], dim=0).unsqueeze(0).expand(len(batch), -1, -1, -1)
+
+        for step in range(max_step):
+            stepnum = T * (step / max_step)
+            obs = torch.cat([canvas, batch, stepnum, coord], dim=1)
+            actions = actor(obs)
+            canvas, _ = decode(actions, canvas, renderer, width)
+
+        mse = ((canvas - batch) ** 2).mean().item()
+        total_dist += mse
+        n_batches += 1
+
+    actor.train()
+    return total_dist / max(n_batches, 1)
+
+
 # ── DDPG Training Loop ────────────────────────────────────────────────────
 
 def train(args):
@@ -194,10 +249,15 @@ def train(args):
     print(f'  Dataset: {args.data_dir}')
     print(f'  Device: {device}')
 
-    # Load dataset
+    # Load dataset with train/val split
     print('Loading images...')
     all_images = load_images(args.data_dir, width, max_images=args.max_images)
-    print(f'  Loaded {len(all_images)} images')
+    n_total = len(all_images)
+    n_val = max(1, int(n_total * args.val_fraction))
+    perm = torch.randperm(n_total)
+    val_images = all_images[perm[:n_val]]
+    train_images = all_images[perm[n_val:]]
+    print(f'  Loaded {n_total} images → {len(train_images)} train, {n_val} val')
 
     # Models
     actor = ActorResNet(width=width).to(device)
@@ -234,13 +294,15 @@ def train(args):
     gamma = args.gamma
     noise_scale = args.noise_scale
 
+    best_val_dist = float('inf')
+
     t0 = time.time()
     total_episodes = 0
 
     for episode in range(1, args.max_episodes + 1):
-        # Sample batch of target images
-        idx = torch.randint(0, len(all_images), (args.env_batch,))
-        targets = all_images[idx].to(device)
+        # Sample batch of target images from TRAIN set
+        idx = torch.randint(0, len(train_images), (args.env_batch,))
+        targets = train_images[idx].to(device)
         obs = env.reset(targets)
 
         episode_reward = 0.0
@@ -304,11 +366,24 @@ def train(args):
             elapsed = time.time() - t0
             print(f'  Episode {episode}/{args.max_episodes}  '
                   f'reward={episode_reward:.4f}  '
-                  f'{elapsed:.0f}s elapsed')
+                  f'{elapsed:.0f}s elapsed', flush=True)
+
+        # Validation: measure painting quality on held-out images
+        if episode % args.val_interval == 0:
+            val_dist = _evaluate_painting(actor, renderer, env, val_images,
+                                          width, device, args.env_max_step)
+            improved = val_dist < best_val_dist
+            if improved:
+                best_val_dist = val_dist
+                best_path = save_path.replace('.pkl', '_best.pkl')
+                torch.save(actor.state_dict(), best_path)
+            print(f'  [VAL] Episode {episode}  val_mse={val_dist:.6f}  '
+                  f'best={best_val_dist:.6f}  {"★ new best" if improved else ""}',
+                  flush=True)
 
         if episode % args.save_interval == 0:
             torch.save(actor.state_dict(), save_path)
-            print(f'  Saved to {save_path}')
+            print(f'  Saved to {save_path}', flush=True)
 
         # Decay noise
         noise_scale *= args.noise_decay
@@ -338,6 +413,10 @@ def main():
     parser.add_argument('--noise_scale', type=float, default=0.3)
     parser.add_argument('--noise_decay', type=float, default=0.9999)
     parser.add_argument('--max_images', type=int, default=50000)
+    parser.add_argument('--val_fraction', type=float, default=0.1,
+                        help='Fraction of images held out for validation')
+    parser.add_argument('--val_interval', type=int, default=200,
+                        help='Run validation every N episodes')
     parser.add_argument('--log_interval', type=int, default=50)
     parser.add_argument('--save_interval', type=int, default=500)
     args = parser.parse_args()

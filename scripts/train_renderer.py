@@ -61,9 +61,19 @@ def draw(f: np.ndarray, width: int = 128) -> np.ndarray:
         x = int((1 - t) * (1 - t) * x0 + 2 * t * (1 - t) * x1 + t * t * x2)
         y = int((1 - t) * (1 - t) * y0 + 2 * t * (1 - t) * y1 + t * t * y2)
         z = int((1 - t) * z0 + t * z2)
-        w = (1 - t) * w0 + t * w2
+        w = float((1 - t) * w0 + t * w2)
         cv2.circle(canvas, (y, x), z, w, -1)
     return 1 - cv2.resize(canvas, dsize=(width, width))
+
+
+# ── Stroke pool (pre-generate for speed) ──────────────────────────────────
+
+def _generate_stroke_pool(pool_size: int, width: int
+                          ) -> tuple[np.ndarray, np.ndarray]:
+    """Pre-generates a pool of random strokes and their rasterised targets."""
+    params = np.random.rand(pool_size, 10).astype(np.float32)
+    targets = np.stack([draw(params[i], width) for i in range(pool_size)])
+    return params, targets
 
 
 # ── Training loop ─────────────────────────────────────────────────────────
@@ -85,9 +95,15 @@ def train(width: int, max_step: int, batch_size: int, save_dir: str,
     criterion = nn.MSELoss()
 
     os.makedirs(save_dir, exist_ok=True)
-    save_path = os.path.join(save_dir, f'renderer_{width}.pkl')
-    print(f'Training RendererFCN(width={width}) for {max_step} steps')
-    print(f'  Save path: {save_path}')
+    save_name = os.environ.get('RENDERER_SAVE_NAME', f'renderer_{width}.pkl')
+    save_path = os.path.join(save_dir, save_name)
+    print(f'Training RendererFCN(width={width}) for {max_step} steps', flush=True)
+    print(f'  Save path: {save_path}', flush=True)
+
+    # Pre-generate a pool of target strokes for speed (refresh periodically)
+    pool_size = batch_size * 200
+    pool_params, pool_targets = _generate_stroke_pool(pool_size, width)
+    pool_idx = 0
 
     t0 = time.time()
     for step in range(1, max_step + 1):
@@ -99,9 +115,13 @@ def train(width: int, max_step: int, batch_size: int, save_dir: str,
             for g in optimizer.param_groups:
                 g['lr'] = 1e-6
 
-        # Generate random strokes
-        params = np.random.rand(batch_size, 10).astype(np.float32)
-        targets = np.stack([draw(params[i], width) for i in range(batch_size)])
+        # Sample from pre-generated pool
+        if pool_idx + batch_size > pool_size:
+            pool_params, pool_targets = _generate_stroke_pool(pool_size, width)
+            pool_idx = 0
+        params = pool_params[pool_idx:pool_idx + batch_size]
+        targets = pool_targets[pool_idx:pool_idx + batch_size]
+        pool_idx += batch_size
 
         params_t = torch.from_numpy(params).to(device)
         targets_t = torch.from_numpy(targets).to(device)
@@ -117,10 +137,11 @@ def train(width: int, max_step: int, batch_size: int, save_dir: str,
             elapsed = time.time() - t0
             steps_per_sec = step / elapsed
             print(f'  Step {step}/{max_step}  loss={loss.item():.6f}  '
-                  f'{steps_per_sec:.0f} steps/sec')
+                  f'{steps_per_sec:.0f} steps/sec', flush=True)
 
         if step % (max_step // 10) == 0:
             torch.save(renderer.state_dict(), save_path)
+            print(f'  Checkpoint saved', flush=True)
             print(f'  Checkpoint saved to {save_path}')
 
     torch.save(renderer.state_dict(), save_path)
