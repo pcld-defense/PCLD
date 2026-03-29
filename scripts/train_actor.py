@@ -335,13 +335,12 @@ def train(args):
         ep_updates = 0
 
         while not done:
-            # Actor predicts actions + exploration noise
+            # Env interaction — no gradient needed
             with torch.no_grad():
                 actions = actor(obs)
                 noise = torch.randn_like(actions) * noise_scale
                 actions = (actions + noise).clamp(0, 1)
-
-            next_obs, reward, done = env.step(actions, renderer)
+                next_obs, reward, done = env.step(actions, renderer)
             episode_reward += reward.mean().item()
 
             # Store transitions
@@ -357,26 +356,30 @@ def train(args):
                     s, a, r, ns, d = replay.sample(args.batch_size)
                     s, a, r, ns, d = s.to(device), a.to(device), r.to(device), ns.to(device), d.to(device)
 
-                    # Critic update
+                    # --- Critic update ---
                     with torch.no_grad():
                         next_a = actor_target(ns)
                         next_canvas, _ = decode(next_a, ns[:, :3], renderer, width)
                         target_q = r + gamma * (1 - d) * critic_target(ns, next_canvas)
-                        # Detach canvas for critic (no grad through renderer)
                         current_canvas, _ = decode(a, s[:, :3], renderer, width)
 
-                    current_q = critic(s, current_canvas.detach())
+                    current_q = critic(s, current_canvas)
                     c_loss = F.mse_loss(current_q, target_q)
 
                     critic_opt.zero_grad()
                     c_loss.backward()
                     critic_opt.step()
 
-                    # Actor update — freeze critic, only update actor
+                    # --- Actor update ---
+                    # Gradient flows: actor → decode (renderer frozen) → critic (frozen)
+                    # Freeze critic so we only update actor params
                     for p in critic.parameters():
+                        p.requires_grad_(False)
+                    for p in renderer.parameters():
                         p.requires_grad_(False)
 
                     pred_a = actor(s)
+                    # Re-decode with grad through actor only (renderer has no grad)
                     pred_canvas, _ = decode(pred_a, s[:, :3].detach(), renderer, width)
                     a_loss = -critic(s.detach(), pred_canvas).mean()
 
@@ -385,6 +388,8 @@ def train(args):
                     actor_opt.step()
 
                     for p in critic.parameters():
+                        p.requires_grad_(True)
+                    for p in renderer.parameters():
                         p.requires_grad_(True)
 
                     # Soft update targets
