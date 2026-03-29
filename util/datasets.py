@@ -7,7 +7,7 @@ import torch
 from PIL import Image
 from torchvision import datasets, transforms
 
-from util.consts import RESOURCES_DATASETS_DIR, IMAGENETConsts, CIFAR10Consts
+from util.consts import RESOURCES_DATASETS_DIR, IMAGENETConsts, CIFAR10Consts, CIFAR100Consts
 
 
 def load_image(path: str, width: int = 300, height: int = 300) -> np.ndarray:
@@ -77,7 +77,8 @@ def transform_dataset(dataset_type: str = 'imagenet',
         ValueError: If ``preprocessing`` is not a recognised key for the
             chosen dataset type.
     """
-    consts = IMAGENETConsts if dataset_type == 'imagenet' else CIFAR10Consts
+    _CONSTS = {'imagenet': IMAGENETConsts, 'cifar10': CIFAR10Consts, 'cifar100': CIFAR100Consts}
+    consts = _CONSTS.get(dataset_type, CIFAR10Consts)
 
     if preprocessing not in consts.PREPROCESSINGS:
         raise ValueError(

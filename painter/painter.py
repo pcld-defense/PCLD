@@ -155,10 +155,16 @@ class ActorResNet(nn.Module):
     Takes a 9-channel input (canvas RGB + target image RGB + step fraction +
     2D coordinate grid) and outputs 65 values representing 5 stroke action
     bundles, each with 13 parameters (10 geometry + 3 colour).
+
+    The actor is resolution-agnostic: ``AdaptiveAvgPool2d(1)`` replaces the
+    original ``avg_pool2d(4)`` so the same architecture accepts any spatial
+    resolution (32×32, 128×128, 224×224, etc.).  Pretrained weights from
+    one resolution load directly into another because all conv/fc layers
+    are identical — only the pooling behaviour changes.
     """
 
     def __init__(self, num_inputs: int = 9, depth: int = 18,
-                 num_outputs: int = 65) -> None:
+                 num_outputs: int = 65, width: int = 128) -> None:
         """Builds the actor ResNet.
 
         Args:
@@ -167,9 +173,13 @@ class ActorResNet(nn.Module):
             depth: ResNet depth variant; must be one of {18, 34, 50, 101, 152}.
             num_outputs: Number of stroke parameters to predict per location
                 (default 65 = 5 bundles × 13 params).
+            width: Canvas side length in pixels.  Stored for documentation;
+                does not affect layer dimensions (AdaptiveAvgPool handles
+                any resolution).
         """
         super(ActorResNet, self).__init__()
         self.in_planes = 64
+        self.width = width
 
         block, num_blocks = cfg(depth)
 
@@ -179,6 +189,7 @@ class ActorResNet(nn.Module):
         self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
         self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
         self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
+        self.pool = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Linear(512 * block.expansion, num_outputs)
 
     def _make_layer(self, block: type, planes: int, num_blocks: int,
@@ -216,7 +227,7 @@ class ActorResNet(nn.Module):
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
-        x = F.avg_pool2d(x, 4)
+        x = self.pool(x)
         x = x.view(x.size(0), -1)
         x = self.fc(x)
         x = torch.sigmoid(x)
@@ -230,17 +241,36 @@ class ActorResNet(nn.Module):
 class RendererFCN(nn.Module):
     """Fully-connected neural renderer that rasterises a single stroke.
 
-    Maps 10 geometric stroke parameters to a grayscale alpha mask of size
-    128×128 via a series of FC layers followed by pixel-shuffle upsampling.
+    Maps 10 geometric stroke parameters to a grayscale alpha mask via FC
+    layers followed by three pixel-shuffle upsampling stages (8× total).
+    The output resolution is ``width × width``, where ``width`` must be
+    divisible by 8.
+
+    For width=128 (legacy default) the architecture is identical to the
+    original Learning-to-Paint renderer, so pretrained weights load directly.
+    For other widths (32, 224, …) only ``fc4`` and the reshape change — all
+    conv layers stay the same.
     """
 
-    def __init__(self) -> None:
-        """Builds the renderer with FC layers and pixel-shuffle upsampling."""
+    def __init__(self, width: int = 128) -> None:
+        """Builds the renderer with FC layers and pixel-shuffle upsampling.
+
+        Args:
+            width: Output alpha-mask side length in pixels.  Must be
+                divisible by 8.
+        """
         super(RendererFCN, self).__init__()
+        if width % 8 != 0:
+            raise ValueError(f"RendererFCN width must be divisible by 8, got {width}")
+
+        self.width = width
+        self.base_spatial = width // 8  # 128→16, 32→4, 224→28
+
+        fc4_out = 16 * self.base_spatial * self.base_spatial  # 128→4096, 32→256, 224→12544
         self.fc1 = nn.Linear(10, 512)
         self.fc2 = nn.Linear(512, 1024)
         self.fc3 = nn.Linear(1024, 2048)
-        self.fc4 = nn.Linear(2048, 4096)
+        self.fc4 = nn.Linear(2048, fc4_out)
         self.conv1 = nn.Conv2d(16, 32, 3, 1, 1)
         self.conv2 = nn.Conv2d(32, 32, 3, 1, 1)
         self.conv3 = nn.Conv2d(8, 16, 3, 1, 1)
@@ -256,14 +286,14 @@ class RendererFCN(nn.Module):
             x: Stroke geometry parameters of shape (B, 10).
 
         Returns:
-            Inverted alpha mask of shape (B, 128, 128) with values in [0, 1],
-            where 0 = full stroke coverage and 1 = no stroke.
+            Inverted alpha mask of shape (B, width, width) with values in
+            [0, 1], where 0 = full stroke coverage and 1 = no stroke.
         """
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(x))
         x = F.relu(self.fc4(x))
-        x = x.view(-1, 16, 16, 16)
+        x = x.view(-1, 16, self.base_spatial, self.base_spatial)
         x = F.relu(self.conv1(x))
         x = self.pixel_shuffle(self.conv2(x))
         x = F.relu(self.conv3(x))
@@ -271,4 +301,4 @@ class RendererFCN(nn.Module):
         x = F.relu(self.conv5(x))
         x = self.pixel_shuffle(self.conv6(x))
         x = torch.sigmoid(x)
-        return 1 - x.view(-1, 128, 128)
+        return 1 - x.view(-1, self.width, self.width)

@@ -9,13 +9,14 @@ import torch.nn as nn
 
 from model.decisioner import Decisioner1DConv, DecisionerFC
 from model.normalized_model import NormalizedModel
+from painter.painter_config import get_painter_config
 from painter.painter_surrogate import (IdentitySurrogate_, PainterSurrogate,
                                         load_painter_surrogate, load_joint_surrogate)
 from painter.painter_utils import load_painter, paint_images
 from model.pcld_bpda import BPDAPainter, CLD, PCLD
 from util.attacks import attacker
 from util.consts import NUM_OF_HYPHENS, IMAGENET_2012_LABELS, RESOURCES_RESULTS_DIR, \
-    RESOURCES_MODELS_DIR, CIFAR10Consts, IMAGENETConsts, ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH
+    RESOURCES_MODELS_DIR, CIFAR10Consts, CIFAR100Consts, IMAGENETConsts, ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH
 from util.datasets import transform_dataset, get_loaders
 from util.integrative import save_args_json
 from util.models import load_model
@@ -63,7 +64,9 @@ def main_attack_pcld(args: argparse.Namespace, device: str) -> None:
     transform_dict = {split: split_transform for split in args.splits}
     loaders = get_loaders(dataset, args.splits, transform_dict, batch_size)
 
-    actor, renderer = load_painter(ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH, device)
+    painter_config = get_painter_config(args.dataset_type)
+    actor, renderer = load_painter(ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH, device,
+                                   width=painter_config.width)
 
     print('-' * NUM_OF_HYPHENS)
     print(f'Load pre-trained painter-surrogates models...')
@@ -92,7 +95,8 @@ def main_attack_pcld(args: argparse.Namespace, device: str) -> None:
     clf.eval()
 
     # Wrap classifier with internal normalization (RobustBench convention).
-    consts = CIFAR10Consts if args.dataset_type == 'cifar10' else IMAGENETConsts
+    _CONSTS = {'cifar10': CIFAR10Consts, 'cifar100': CIFAR100Consts, 'imagenet': IMAGENETConsts}
+    consts = _CONSTS.get(args.dataset_type, CIFAR10Consts)
     clf = NormalizedModel(clf, consts.MEAN, consts.STD).to(device).eval()
 
     print('-' * NUM_OF_HYPHENS)
@@ -117,7 +121,7 @@ def main_attack_pcld(args: argparse.Namespace, device: str) -> None:
     print(f'Creating PCLD BPDA model...')
     # mean=None: input is [0, 1], NormalizedModel(clf) handles normalization.
     bpda_painter = BPDAPainter(paint_images, painter_surrogate, output_every, device, actor, renderer,
-                               mean=None, std=None).to(device).eval()
+                               mean=None, std=None, painter_config=painter_config).to(device).eval()
     pcld = PCLD(bpda_painter, clf, decisioner, num_paint_steps, decisioner_architecture).to(device).eval()
     print(f'finished creating PCLD BPDA model!')
 

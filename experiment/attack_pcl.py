@@ -6,12 +6,13 @@ import torch
 from model.classifier import get_net
 from model.normalized_model import NormalizedModel
 from model.pcld_bpda import BPDAPainter, PCL
+from painter.painter_config import get_painter_config
 from painter.painter_surrogate import (IdentitySurrogate_, PainterSurrogate,
                                         load_painter_surrogate, load_joint_surrogate)
 from painter.painter_utils import load_painter, paint_images
 from util.attacks import attacker
 from util.consts import NUM_OF_HYPHENS, RESOURCES_RESULTS_DIR, RESOURCES_MODELS_DIR, \
-    ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH, CIFAR10Consts, IMAGENETConsts
+    ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH, CIFAR10Consts, IMAGENETConsts, CIFAR100Consts
 from util.datasets import transform_dataset, get_loaders
 from util.integrative import save_args_json
 
@@ -58,7 +59,9 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
     first_ds = loaders[splits[0]][0]
     classes = sorted(first_ds.class_to_idx.keys())
 
-    actor, renderer = load_painter(ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH, device)
+    painter_config = get_painter_config(dataset_type)
+    actor, renderer = load_painter(ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH, device,
+                                   width=painter_config.width)
 
     print('-' * NUM_OF_HYPHENS)
     print(f'Load pre-trained painter-surrogates models...')
@@ -88,7 +91,8 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
     # The classifier was trained with transforms.Normalize in the DataLoader,
     # so its weights expect normalised input.  NormalizedModel moves the
     # normalization inside the model so attacks operate in [0, 1] pixel space.
-    consts = CIFAR10Consts if dataset_type == 'cifar10' else IMAGENETConsts
+    _CONSTS = {'cifar10': CIFAR10Consts, 'cifar100': CIFAR100Consts, 'imagenet': IMAGENETConsts}
+    consts = _CONSTS.get(dataset_type, CIFAR10Consts)
     clf = NormalizedModel(clf, consts.MEAN, consts.STD).to(device).eval()
 
     print('-' * NUM_OF_HYPHENS)
@@ -96,7 +100,7 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
     # mean=None: input is already [0, 1], painter works in [0, 1],
     # NormalizedModel(clf) handles normalisation of canvases internally.
     painter = BPDAPainter(paint_images, painter_surrogate, output_every, device, actor, renderer,
-                          mean=None, std=None).to(device).eval()
+                          mean=None, std=None, painter_config=painter_config).to(device).eval()
     pcl = PCL(painter, clf).to(device).eval()
 
     if torch.cuda.device_count() > 1:

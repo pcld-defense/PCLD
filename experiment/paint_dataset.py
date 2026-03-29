@@ -6,6 +6,7 @@ import glob
 from tqdm import tqdm
 from torchvision.utils import save_image
 
+from painter.painter_config import get_painter_config
 from painter.painter_utils import load_painter, paint_images
 from util.consts import RESOURCES_DATASETS_DIR, NUM_OF_HYPHENS, ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH
 from util.datasets import transform_dataset, get_loaders
@@ -14,7 +15,7 @@ from util.integrative import save_args_json
 
 def paint_dataset(actor, renderer, loaders: tuple, loader_name: str,
                   device: str, output_every: list[int],
-                  ds_local_dir_new: str) -> None:
+                  ds_local_dir_new: str, painter_config=None) -> None:
     """Paints all images in a single dataset split and saves canvases to disk.
 
     Iterates over each batch, calls paint_images to obtain canvases at the
@@ -67,7 +68,8 @@ def paint_dataset(actor, renderer, loaders: tuple, loader_name: str,
                                 device=device,
                                 actor=actor,
                                 renderer=renderer,
-                                add_original=True)
+                                add_original=True,
+                                config=painter_config)
         end_time = time.time()
         painting_avg_time += (end_time - start_time) / len(img_names)
 
@@ -100,7 +102,9 @@ def main_paint_dataset(args: argparse.Namespace, device: str) -> None:
     dataset, splits, experiment_name, batch_size, output_every = \
         args.dataset, args.splits, args.experiment_name, args.batch_size, args.output_every
 
-    actor, renderer = load_painter(ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH, device)
+    painter_config = get_painter_config(args.dataset_type)
+    actor, renderer = load_painter(ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH, device,
+                                   width=painter_config.width)
 
     transform = transform_dataset(dataset_type=args.dataset_type,
                                   preprocessing=args.preprocessing)
@@ -112,4 +116,5 @@ def main_paint_dataset(args: argparse.Namespace, device: str) -> None:
     save_args_json(args, os.path.join(RESOURCES_DATASETS_DIR, experiment_name))
 
     for split in splits:
-        paint_dataset(actor, renderer, loaders[split], split, device, output_every, ds_local_dir_new)
+        paint_dataset(actor, renderer, loaders[split], split, device, output_every, ds_local_dir_new,
+                      painter_config=painter_config)

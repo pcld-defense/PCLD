@@ -42,7 +42,8 @@ class BPDAPainterLayer(torch.autograd.Function):
     def forward(ctx, input: torch.Tensor, non_diff_layer, grad_approx_net,
                 output_every: list[int], device: str, actor: nn.Module,
                 renderer: nn.Module, epsilon: Union[float, None] = None,
-                norm: Union[str, None] = None) -> torch.Tensor:
+                norm: Union[str, None] = None,
+                painter_config=None) -> torch.Tensor:
         """Runs the painter forward and saves context for the backward pass.
 
         Args:
@@ -60,6 +61,8 @@ class BPDAPainterLayer(torch.autograd.Function):
             epsilon: L-inf perturbation budget for canvas-level perturbation
                 (only used when non_diff_layer is a Tensor).
             norm: Attack norm type (e.g. 'inf') for canvas-level perturbation.
+            painter_config: Optional ``PainterConfig`` passed through to
+                ``paint_images`` for native-resolution painting.
 
         Returns:
             Canvas tensor of shape (B, Steps, 3, H, W) in [0, 1].
@@ -80,7 +83,8 @@ class BPDAPainterLayer(torch.autograd.Function):
             output = BPDAPainterLayer._stored_non_diff_layer
             ctx.grad_approx_net = output
         else:
-            output = non_diff_layer(input, output_every, device, actor, renderer)
+            output = non_diff_layer(input, output_every, device, actor, renderer,
+                                    config=painter_config)
         return output
 
     @staticmethod
@@ -122,7 +126,7 @@ class BPDAPainterLayer(torch.autograd.Function):
                 retain_graph=False,
             )[0]
 
-        return new_grad_input, None, None, None, None, None, None, None, None
+        return new_grad_input, None, None, None, None, None, None, None, None, None
 
 
 class BPDAPainter(nn.Module):
@@ -138,7 +142,8 @@ class BPDAPainter(nn.Module):
                  renderer: nn.Module, epsilon: Union[float, None] = None,
                  norm: Union[str, None] = None,
                  mean: Optional[torch.Tensor] = None,
-                 std: Optional[torch.Tensor] = None) -> None:
+                 std: Optional[torch.Tensor] = None,
+                 painter_config=None) -> None:
         """Stores painting configuration.
 
         Args:
@@ -156,6 +161,8 @@ class BPDAPainter(nn.Module):
                 re-normalised before being passed to the classifier.
             std: Per-channel normalisation std of shape (3,) paired with
                 ``mean``. Must be provided together with ``mean``.
+            painter_config: Optional ``PainterConfig`` for native-resolution
+                painting.  Passed through to ``paint_images``.
         """
         super(BPDAPainter, self).__init__()
         self.non_diff_layer = non_diff_layer
@@ -168,6 +175,7 @@ class BPDAPainter(nn.Module):
         self.norm = norm
         self.mean = mean  # (3,) or None
         self.std = std    # (3,) or None
+        self.painter_config = painter_config
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Paints the input batch via BPDAPainterLayer.
@@ -200,7 +208,8 @@ class BPDAPainter(nn.Module):
                                           self.actor,
                                           self.renderer,
                                           self.epsilon,
-                                          self.norm)
+                                          self.norm,
+                                          self.painter_config)
 
         if self.mean is not None:
             mean5d = mean4d.unsqueeze(1)           # (1, 1, 3, 1, 1)

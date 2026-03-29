@@ -87,7 +87,29 @@ class CIFAR10Consts:
     }
 
 
+class CIFAR100Consts:
+    SHAPE = 32
+    NUM_CLASSES = 100
+    MEAN = (0.5071, 0.4867, 0.4408)
+    STD = (0.2675, 0.2565, 0.2761)
+    PREPROCESSINGS = {
+        None: transforms.Compose([transforms.ToTensor(),
+                                  transforms.Normalize(mean=MEAN, std=STD)]),
+        'ToTensorOnly': transforms.Compose([transforms.ToTensor()]),
+        'augmented': transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=MEAN, std=STD),
+            transforms.RandomErasing(p=0.5),
+        ]),
+    }
+
+
 class PainterConsts:
+    """Legacy global painter constants.  Prefer ``PainterConfig`` from
+    ``painter.painter_config`` for new code."""
     MAX_STEP = 40
     WIDTH = 128
     DIVIDE = 1

@@ -9,11 +9,12 @@ from torch.optim import Adam
 from torchvision import models
 from tqdm import tqdm
 
+from painter.painter_config import get_painter_config
 from painter.painter_surrogate import PainterSurrogate_, JointPainterSurrogate
 from painter.painter_utils import load_painter, paint_images
 from util.consts import (NUM_OF_HYPHENS, RESOURCES_MODELS_DIR,
                          ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH,
-                         IMAGENETConsts, CIFAR10Consts)
+                         IMAGENETConsts, CIFAR10Consts, CIFAR100Consts)
 from util.datasets import transform_dataset, get_loaders
 from util.integrative import save_args_json
 from util.models import load_model
@@ -50,6 +51,7 @@ def _train_one_surrogate(
         resume: bool,
         mean: torch.Tensor,
         std: torch.Tensor,
+        painter_config=None,
 ) -> None:
     """Trains a single PainterSurrogate_ for a given paint step and saves it.
 
@@ -113,7 +115,7 @@ def _train_one_surrogate(
             # Real painter output at this step (no gradient needed).
             with torch.no_grad():
                 canvases = paint_images(x_01, [step], device, actor, renderer,
-                                        add_original=False)
+                                        add_original=False, config=painter_config)
                 target = canvases[:, 0]     # (B, 3, H, W) in [0, 1]
 
             pred = surrogate(x_01)          # (B, 3, H, W) in [0, 1]
@@ -177,6 +179,7 @@ def _train_joint_surrogate(
         resume: bool,
         mean: torch.Tensor,
         std: torch.Tensor,
+        painter_config=None,
 ) -> None:
     """Trains a single JointPainterSurrogate covering all steps in output_every.
 
@@ -234,7 +237,7 @@ def _train_joint_surrogate(
             # Paint all steps in one call.
             with torch.no_grad():
                 targets = paint_images(x_01, output_every, device, actor, renderer,
-                                       add_original=False)  # (B, Steps, 3, H, W)
+                                       add_original=False, config=painter_config)  # (B, Steps, 3, H, W)
 
             preds = model(x_01)   # (B, Steps, 3, H, W)
             loss = F.mse_loss(preds, targets)
@@ -336,16 +339,20 @@ def main_train_surrogate_painter(args: argparse.Namespace, device: str) -> None:
     os.makedirs(output_dir, exist_ok=True)
     save_args_json(args, output_dir)
 
-    consts = CIFAR10Consts if args.dataset_type == 'cifar10' else IMAGENETConsts
+    _CONSTS = {'cifar10': CIFAR10Consts, 'cifar100': CIFAR100Consts, 'imagenet': IMAGENETConsts}
+    consts = _CONSTS.get(args.dataset_type, CIFAR10Consts)
     mean = torch.tensor(consts.MEAN)
     std  = torch.tensor(consts.STD)
+
+    painter_config = get_painter_config(args.dataset_type)
 
     split_transform = transform_dataset(dataset_type=args.dataset_type,
                                         preprocessing=args.preprocessing)
     transform_dict = {split: split_transform for split in args.splits}
     loaders = get_loaders(args.dataset, args.splits, transform_dict, args.batch_size)
 
-    actor, renderer = load_painter(ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH, device)
+    actor, renderer = load_painter(ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH, device,
+                                   width=painter_config.width)
 
     if joint:
         os.makedirs(os.path.dirname(os.path.abspath(joint_path)), exist_ok=True)
@@ -359,6 +366,7 @@ def main_train_surrogate_painter(args: argparse.Namespace, device: str) -> None:
             device=device, max_epochs=args.max_epochs, lr=args.lr,
             save_path=joint_path, resume=resume,
             mean=mean, std=std,
+            painter_config=painter_config,
         )
     else:
         for step in args.output_every:
@@ -371,6 +379,7 @@ def main_train_surrogate_painter(args: argparse.Namespace, device: str) -> None:
                 device=device, max_epochs=args.max_epochs, lr=args.lr,
                 output_dir=output_dir, resume=resume,
                 mean=mean, std=std,
+                painter_config=painter_config,
             )
 
     print('-' * NUM_OF_HYPHENS)
