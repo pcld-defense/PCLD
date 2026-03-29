@@ -310,6 +310,7 @@ def train(args):
     noise_scale = args.noise_scale
 
     best_val_dist = float('inf')
+    patience_counter = 0
 
     # Running accumulators for averaging over log_interval episodes
     acc_reward = 0.0
@@ -456,10 +457,15 @@ def train(args):
             improved = val_dist < best_val_dist
             if improved:
                 best_val_dist = val_dist
+                patience_counter = 0
                 best_path = save_path.replace('.pkl', '_best.pkl')
                 torch.save(actor.state_dict(), best_path)
+            else:
+                patience_counter += 1
+
             print(f'  [VAL] Episode {episode}  val_mse={val_dist:.6f}  '
-                  f'best={best_val_dist:.6f}  {"★ new best" if improved else ""}',
+                  f'best={best_val_dist:.6f}  patience={patience_counter}/{args.patience}  '
+                  f'{"★ new best" if improved else ""}',
                   flush=True)
 
             # Write val row to CSV
@@ -468,6 +474,13 @@ def train(args):
                 '', f'{val_dist:.6f}', f'{best_val_dist:.6f}',
             ])
             metrics_file.flush()
+
+            # Early stopping
+            if patience_counter >= args.patience:
+                print(f'\n  Early stopping at episode {episode} — '
+                      f'no val improvement for {args.patience} validations',
+                      flush=True)
+                break
 
         if episode % args.save_interval == 0:
             torch.save(actor.state_dict(), save_path)
@@ -479,6 +492,7 @@ def train(args):
     metrics_file.close()
     torch.save(actor.state_dict(), save_path)
     print(f'Training complete. Final model: {save_path}')
+    print(f'Best model: {best_path}  (val_mse={best_val_dist:.6f})')
     print(f'Metrics saved to: {metrics_csv_path}')
 
 
@@ -507,6 +521,10 @@ def main():
                         help='Fraction of images held out for validation')
     parser.add_argument('--val_interval', type=int, default=200,
                         help='Run validation every N episodes')
+    parser.add_argument('--patience', type=int, default=25,
+                        help='Early stopping: stop if val MSE does not improve '
+                             'for this many consecutive validations '
+                             '(default 25 = 5000 episodes with val_interval=200)')
     parser.add_argument('--log_interval', type=int, default=50)
     parser.add_argument('--save_interval', type=int, default=500)
     args = parser.parse_args()
