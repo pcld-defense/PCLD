@@ -372,14 +372,20 @@ def train(args):
                     c_loss.backward()
                     critic_opt.step()
 
-                    # Actor update — fresh forward through actor → renderer → critic
+                    # Actor update — freeze critic, only update actor
+                    for p in critic.parameters():
+                        p.requires_grad_(False)
+
                     pred_a = actor(s)
-                    pred_canvas, _ = decode(pred_a, s[:, :3], renderer, width)
-                    a_loss = -critic(s, pred_canvas).mean()
+                    pred_canvas, _ = decode(pred_a, s[:, :3].detach(), renderer, width)
+                    a_loss = -critic(s.detach(), pred_canvas).mean()
 
                     actor_opt.zero_grad()
                     a_loss.backward()
                     actor_opt.step()
+
+                    for p in critic.parameters():
+                        p.requires_grad_(True)
 
                     # Soft update targets
                     for p, tp in zip(actor.parameters(), actor_target.parameters()):
