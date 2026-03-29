@@ -2,8 +2,12 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from imagenet_stubs.imagenet_2012_labels import IMAGENET_2012_LABELS
 from torchvision import transforms
+
+try:
+    from imagenet_stubs.imagenet_2012_labels import IMAGENET_2012_LABELS
+except ImportError:
+    IMAGENET_2012_LABELS = {i: f'class_{i}' for i in range(1000)}
 
 load_dotenv()
 
