@@ -289,11 +289,13 @@ def train(args):
     replay = ReplayBuffer(args.replay_size)
 
     os.makedirs(args.save_dir, exist_ok=True)
-    save_path = os.path.join(args.save_dir, f'actor_{width}.pkl')
+    save_name = os.environ.get('ACTOR_SAVE_NAME', f'actor_{width}.pkl')
+    save_path = os.path.join(args.save_dir, save_name)
+    metrics_name = save_name.replace('.pkl', '_metrics.csv')
 
     # Metrics CSV for paper plots
     results_dir = os.path.dirname(save_path)
-    metrics_csv_path = os.path.join(results_dir, f'training_metrics_{width}.csv')
+    metrics_csv_path = os.path.join(results_dir, metrics_name)
     metrics_file = open(metrics_csv_path, 'w', newline='')
     metrics_writer = csv.writer(metrics_file)
     metrics_writer.writerow([
