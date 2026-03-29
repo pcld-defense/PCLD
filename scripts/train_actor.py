@@ -362,16 +362,17 @@ def train(args):
                         next_a = actor_target(ns)
                         next_canvas, _ = decode(next_a, ns[:, :3], renderer, width)
                         target_q = r + gamma * (1 - d) * critic_target(ns, next_canvas)
+                        # Detach canvas for critic (no grad through renderer)
+                        current_canvas, _ = decode(a, s[:, :3], renderer, width)
 
-                    current_canvas, _ = decode(a, s[:, :3], renderer, width)
-                    current_q = critic(s, current_canvas)
+                    current_q = critic(s, current_canvas.detach())
                     c_loss = F.mse_loss(current_q, target_q)
 
                     critic_opt.zero_grad()
                     c_loss.backward()
                     critic_opt.step()
 
-                    # Actor update
+                    # Actor update — fresh forward through actor → renderer → critic
                     pred_a = actor(s)
                     pred_canvas, _ = decode(pred_a, s[:, :3], renderer, width)
                     a_loss = -critic(s, pred_canvas).mean()
