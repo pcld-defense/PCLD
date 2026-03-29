@@ -17,6 +17,7 @@ Reference: Huang et al., "Learning to Paint" (ICCV 2019)
 
 import argparse
 import copy
+import csv
 import os
 import random
 import sys
@@ -290,14 +291,33 @@ def train(args):
     os.makedirs(args.save_dir, exist_ok=True)
     save_path = os.path.join(args.save_dir, f'actor_{width}.pkl')
 
+    # Metrics CSV for paper plots
+    results_dir = os.path.dirname(save_path)
+    metrics_csv_path = os.path.join(results_dir, f'training_metrics_{width}.csv')
+    metrics_file = open(metrics_csv_path, 'w', newline='')
+    metrics_writer = csv.writer(metrics_file)
+    metrics_writer.writerow([
+        'episode', 'elapsed_sec', 'episode_reward', 'mean_critic_loss',
+        'mean_actor_loss', 'mean_q_value', 'noise_scale',
+        'train_canvas_mse', 'val_canvas_mse', 'best_val_mse',
+    ])
+    print(f'  Metrics CSV: {metrics_csv_path}', flush=True)
+
     tau = args.tau
     gamma = args.gamma
     noise_scale = args.noise_scale
 
     best_val_dist = float('inf')
 
+    # Running accumulators for averaging over log_interval episodes
+    acc_reward = 0.0
+    acc_critic_loss = 0.0
+    acc_actor_loss = 0.0
+    acc_q_value = 0.0
+    acc_train_mse = 0.0
+    acc_updates = 0
+
     t0 = time.time()
-    total_episodes = 0
 
     for episode in range(1, args.max_episodes + 1):
         # Sample batch of target images from TRAIN set
@@ -307,6 +327,10 @@ def train(args):
 
         episode_reward = 0.0
         done = False
+        ep_critic_loss = 0.0
+        ep_actor_loss = 0.0
+        ep_q_value = 0.0
+        ep_updates = 0
 
         while not done:
             # Actor predicts actions + exploration noise
@@ -339,19 +363,19 @@ def train(args):
 
                     current_canvas, _ = decode(a, s[:, :3], renderer, width)
                     current_q = critic(s, current_canvas)
-                    critic_loss = F.mse_loss(current_q, target_q)
+                    c_loss = F.mse_loss(current_q, target_q)
 
                     critic_opt.zero_grad()
-                    critic_loss.backward()
+                    c_loss.backward()
                     critic_opt.step()
 
                     # Actor update
                     pred_a = actor(s)
                     pred_canvas, _ = decode(pred_a, s[:, :3], renderer, width)
-                    actor_loss = -critic(s, pred_canvas).mean()
+                    a_loss = -critic(s, pred_canvas).mean()
 
                     actor_opt.zero_grad()
-                    actor_loss.backward()
+                    a_loss.backward()
                     actor_opt.step()
 
                     # Soft update targets
@@ -360,13 +384,56 @@ def train(args):
                     for p, tp in zip(critic.parameters(), critic_target.parameters()):
                         tp.data.copy_(tau * p.data + (1 - tau) * tp.data)
 
-        total_episodes += 1
+                    # Accumulate step-level metrics
+                    ep_critic_loss += c_loss.item()
+                    ep_actor_loss += a_loss.item()
+                    ep_q_value += current_q.mean().item()
+                    ep_updates += 1
 
+        # Compute train canvas MSE at end of episode
+        with torch.no_grad():
+            train_mse = ((env.canvas - env.target) ** 2).mean().item()
+
+        # Accumulate episode-level metrics
+        acc_reward += episode_reward
+        acc_train_mse += train_mse
+        if ep_updates > 0:
+            acc_critic_loss += ep_critic_loss / ep_updates
+            acc_actor_loss += ep_actor_loss / ep_updates
+            acc_q_value += ep_q_value / ep_updates
+            acc_updates += 1
+
+        # Log metrics every log_interval episodes
         if episode % args.log_interval == 0:
             elapsed = time.time() - t0
+            n = args.log_interval
+            avg_reward = acc_reward / n
+            avg_train_mse = acc_train_mse / n
+            avg_critic = acc_critic_loss / max(acc_updates, 1)
+            avg_actor = acc_actor_loss / max(acc_updates, 1)
+            avg_q = acc_q_value / max(acc_updates, 1)
+
             print(f'  Episode {episode}/{args.max_episodes}  '
-                  f'reward={episode_reward:.4f}  '
-                  f'{elapsed:.0f}s elapsed', flush=True)
+                  f'reward={avg_reward:.4f}  critic_loss={avg_critic:.4f}  '
+                  f'actor_loss={avg_actor:.4f}  Q={avg_q:.4f}  '
+                  f'train_mse={avg_train_mse:.6f}  noise={noise_scale:.4f}  '
+                  f'{elapsed:.0f}s', flush=True)
+
+            # Write to CSV (val_mse written as empty unless val episode)
+            metrics_writer.writerow([
+                episode, f'{elapsed:.1f}', f'{avg_reward:.6f}',
+                f'{avg_critic:.6f}', f'{avg_actor:.6f}', f'{avg_q:.6f}',
+                f'{noise_scale:.6f}', f'{avg_train_mse:.6f}', '', '',
+            ])
+            metrics_file.flush()
+
+            # Reset accumulators
+            acc_reward = 0.0
+            acc_critic_loss = 0.0
+            acc_actor_loss = 0.0
+            acc_q_value = 0.0
+            acc_train_mse = 0.0
+            acc_updates = 0
 
         # Validation: measure painting quality on held-out images
         if episode % args.val_interval == 0:
@@ -381,6 +448,13 @@ def train(args):
                   f'best={best_val_dist:.6f}  {"★ new best" if improved else ""}',
                   flush=True)
 
+            # Write val row to CSV
+            metrics_writer.writerow([
+                episode, f'{time.time() - t0:.1f}', '', '', '', '', '',
+                '', f'{val_dist:.6f}', f'{best_val_dist:.6f}',
+            ])
+            metrics_file.flush()
+
         if episode % args.save_interval == 0:
             torch.save(actor.state_dict(), save_path)
             print(f'  Saved to {save_path}', flush=True)
@@ -388,8 +462,10 @@ def train(args):
         # Decay noise
         noise_scale *= args.noise_decay
 
+    metrics_file.close()
     torch.save(actor.state_dict(), save_path)
     print(f'Training complete. Final model: {save_path}')
+    print(f'Metrics saved to: {metrics_csv_path}')
 
 
 def main():
