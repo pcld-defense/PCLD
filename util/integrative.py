@@ -99,6 +99,10 @@ def parse_args() -> argparse.Namespace:
                         help='the pre-trained decisioner folder')
     parser.add_argument('--decisioner_architechture', '-dca', type=str, required=False,
                         help='conv/fc')
+    parser.add_argument('--find_best_epoch', '-fbe', type=int, required=False, default=1,
+                        help='1 = run train/val phase to find best epoch before final training')
+    parser.add_argument('--max_train_epsilon', '-mte', type=int, required=False, default=20,
+                        help='filter training data to epsilon <= this value; set to -1 to disable')
 
     ### Attack
     parser.add_argument('--epsilons', '-eps', type=str, required=False, default='8', help='attack epsilon')

@@ -8,9 +8,9 @@ from torch.utils.data import TensorDataset, DataLoader
 import pandas as pd
 import torch
 
-from model.decisioner import Decisioner1DConv, DecisionerFC
+from model.decisioner import Decisioner1DConv, DecisionerFC, DecisionerStepAttention
 from util.consts import RESOURCES_MODELS_DIR
-from util.evaluations import evaluate_print, evaluate_print_decisioner
+from util.evaluations import evaluate_print, evaluate_print_decisioner, plot_loss_and_acc, plot_pcl_accuracy_vs_epsilon
 
 
 def load_model(model: torch.nn.Module, path: str, device: str) -> torch.nn.Module:
@@ -282,8 +282,9 @@ def process_epoch_decisioner(model: torch.nn.Module, epoch: int,
             initialise the per-epsilon accuracy tracking dict.
 
     Returns:
-        Tuple of (y_actual, y_pred, y_prob, indices) lists where each element
-        corresponds to one sample in the dataset.
+        Tuple of (y_actual, y_pred, y_prob, indices, avg_loss, accuracy) where
+        the first four are per-sample lists and the last two are scalar epoch
+        metrics used for training-curve tracking.
     """
     total_loss = 0
     n_epsilons = len(epsilons_all)
@@ -330,11 +331,11 @@ def process_epoch_decisioner(model: torch.nn.Module, epoch: int,
             epsilon_stats[epsilons_by_sample[j]][1] += 1
             class_correct[label] += correct[j].item()
             class_total[label] += 1
-    evaluate_print_decisioner(class_correct, class_total, total_loss, epoch,
-                              dataset_size, n_classes, names_classes,
-                              epsilon_stats)
+    avg_loss, accuracy = evaluate_print_decisioner(class_correct, class_total, total_loss, epoch,
+                                                   dataset_size, n_classes, names_classes,
+                                                   epsilon_stats)
 
-    return y_actual, y_pred, y_prob, indices
+    return y_actual, y_pred, y_prob, indices, avg_loss, accuracy
 
 
 def trainer_decisioner(decisioner_architechture: str, batch_size: int,
@@ -343,7 +344,7 @@ def trainer_decisioner(decisioner_architechture: str, batch_size: int,
                        df_train_full: pd.DataFrame, df_test: pd.DataFrame,
                        paint_steps: int, epsilons_weights: dict, n_classes: int,
                        names_classes: list[str], epsilons: list[int],
-                       device: str) -> tuple:
+                       device: str, output_dir: str) -> tuple:
     """Full decisioner training pipeline with optional early-stopping epoch search.
 
     Two-phase training strategy:
@@ -351,6 +352,9 @@ def trainer_decisioner(decisioner_architechture: str, batch_size: int,
        df_val with early stopping (patience=20) to find the best epoch count.
     2. Re-train from scratch on df_train_full (train + val) for best_epoch
        epochs and evaluate on df_test.
+
+    Loss and accuracy curves for each phase are saved as PNG files to
+    `output_dir` (phase1_average_loss.png, phase2_accuracy_per_epoch.png, etc.).
 
     Args:
         decisioner_architechture: 'conv' for Decisioner1DConv or 'fc' for
@@ -369,6 +373,7 @@ def trainer_decisioner(decisioner_architechture: str, batch_size: int,
         names_classes: Sorted list of class name strings.
         epsilons: Sorted list of all unique epsilon values.
         device: Target device string.
+        output_dir: Directory where training-curve plots are saved.
 
     Returns:
         Tuple of (df_train_full, df_test, decisioner,
@@ -407,6 +412,9 @@ def trainer_decisioner(decisioner_architechture: str, batch_size: int,
     train_full_loader = DataLoader(train_full_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
+    ckpt_dir = os.path.join(output_dir, 'checkpoints')
+    os.makedirs(ckpt_dir, exist_ok=True)
+
     best_epoch = max_epochs
     if find_best_epoch:
         print(f'\nrun train_validate phase to find the best epoch\n')
@@ -414,29 +422,39 @@ def trainer_decisioner(decisioner_architechture: str, batch_size: int,
         decisioner = Decisioner1DConv(n_classes, paint_steps, 32).to(device)
         if decisioner_architechture == 'fc':
             decisioner = DecisionerFC(n_classes, paint_steps).to(device)
+        elif decisioner_architechture == 'attn':
+            decisioner = DecisionerStepAttention(n_classes, paint_steps, 32).to(device)
         criterion_train = nn.CrossEntropyLoss(reduction='none')  # for sample weight
         criterion_test = nn.CrossEntropyLoss()
-        optimizer = optim.SGD(decisioner.parameters(), lr=0.01, weight_decay=0.001)
+        optimizer = optim.Adam(decisioner.parameters(), lr=1e-3, weight_decay=1e-4)
         best_acc_val = 0
+        phase1_history: list[dict] = []
         for epoch in range(0, max_epochs):
             print(f'train_validate: start epoch {epoch}')
             # Train
             print(f'process epoch {epoch} on train')
-            y_actual_train, y_pred_train, y_prob_train, indices_train = \
+            y_actual_train, y_pred_train, y_prob_train, indices_train, train_loss, train_acc = \
                 process_epoch_decisioner(decisioner, epoch,
                                          train_loader, len(train_loader),
                                          n_classes, names_classes, device, optimizer, criterion_train, True,
                                          epsilons
                                          )
+            phase1_history.append({'ds_type': 'train', 'epoch': epoch,
+                                    'avg_loss': train_loss, 'accuracy': train_acc})
             # Validation
             print(f'process epoch {epoch} on validation')
             with torch.no_grad():
-                y_actual_val, y_pred_val, y_prob_val, indices_val = \
+                y_actual_val, y_pred_val, y_prob_val, indices_val, val_loss, val_acc = \
                     process_epoch_decisioner(decisioner, epoch,
                                              val_loader, len(val_loader),
                                              n_classes, names_classes, device, optimizer, criterion_test, False,
                                              epsilons
                                              )
+            phase1_history.append({'ds_type': 'validation', 'epoch': epoch,
+                                    'avg_loss': val_loss, 'accuracy': val_acc})
+
+            torch.save(decisioner.state_dict(),
+                       os.path.join(ckpt_dir, f'phase1_epoch_{epoch}.pth'))
 
             is_correct_val = [int(a == b) for a, b in zip(y_actual_val, y_pred_val)]
             acc_val = sum(is_correct_val) / len(is_correct_val)
@@ -448,33 +466,69 @@ def trainer_decisioner(decisioner_architechture: str, batch_size: int,
                       f'Best validation accuracy: {best_acc_val} ')
                 break
 
+        os.makedirs(output_dir, exist_ok=True)
+        plot_loss_and_acc(pd.DataFrame(phase1_history), output_dir, prefix='phase1_')
+
     print(f'\nrun train_full_test phase\n')
     print(f'load the decisioner model')
     decisioner = Decisioner1DConv(n_classes, paint_steps, 32).to(device)
     if decisioner_architechture == 'fc':
         decisioner = DecisionerFC(n_classes, paint_steps).to(device)
+    elif decisioner_architechture == 'attn':
+        decisioner = DecisionerStepAttention(n_classes, paint_steps, 32).to(device)
     criterion_train = nn.CrossEntropyLoss(reduction='none')  # for sample weight
     criterion_test = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(decisioner.parameters(), lr=0.01, weight_decay=0.001)
+    optimizer = optim.Adam(decisioner.parameters(), lr=1e-3, weight_decay=1e-4)
+    phase2_history: list[dict] = []
     for epoch in range(0, best_epoch):
         # Train Full
         print(f'process epoch {epoch} on train_full')
-        y_actual_train_full, y_pred_train_full, y_prob_train_full, indices_train_full = \
+        y_actual_train_full, y_pred_train_full, y_prob_train_full, indices_train_full, tfl_loss, tfl_acc = \
             process_epoch_decisioner(decisioner, epoch,
                                      train_full_loader, len(train_full_loader),
                                      n_classes, names_classes, device, optimizer, criterion_train, True,
                                      epsilons
                                      )
+        phase2_history.append({'ds_type': 'train', 'epoch': epoch,
+                                'avg_loss': tfl_loss, 'accuracy': tfl_acc})
         # Test
         print(f'process epoch {epoch} on test')
         with torch.no_grad():
-            y_actual_test, y_pred_test, y_prob_test, indices_test = \
+            y_actual_test, y_pred_test, y_prob_test, indices_test, test_loss, test_acc = \
                 process_epoch_decisioner(decisioner, epoch,
                                          test_loader, len(test_loader),
                                          n_classes, names_classes, device, optimizer, criterion_test, False,
                                          epsilons
                                          )
+        phase2_history.append({'ds_type': 'validation', 'epoch': epoch,
+                                'avg_loss': test_loss, 'accuracy': test_acc})
 
+        torch.save(decisioner.state_dict(),
+                   os.path.join(ckpt_dir, f'phase2_epoch_{epoch}.pth'))
+
+        if (epoch + 1) % 5 == 0:
+            eps_numpy = epsilons_test.cpu().numpy()
+            y_actual_arr = np.array(y_actual_test)
+            y_pred_arr = np.array(y_pred_test)
+            decisioner_rows = []
+            for eps in sorted(set(eps_numpy.tolist())):
+                mask = eps_numpy == eps
+                acc = float((y_actual_arr[mask] == y_pred_arr[mask]).mean())
+                decisioner_rows.append({'epsilon': eps, 't': 'Decisioner', 'accuracy': acc})
+            decisioner_df = pd.DataFrame(decisioner_rows)
+            pcl_acc = df_test.groupby(['epsilon', 't']).apply(
+                lambda g: pd.Series({'accuracy': (g['actual'] == g['pred']).mean()})
+            ).reset_index()
+            combined = pd.concat([pcl_acc, decisioner_df], ignore_index=True)
+            plot_pcl_accuracy_vs_epsilon(
+                {'adaptive': combined},
+                title=f'PCL + Decisioner Accuracy vs Epsilon — Epoch {epoch + 1}',
+                save_path=os.path.join(output_dir, f'decisioner_acc_vs_eps_epoch_{epoch + 1}.png'),
+            )
+
+    os.makedirs(output_dir, exist_ok=True)
+    if phase2_history:
+        plot_loss_and_acc(pd.DataFrame(phase2_history), output_dir, prefix='phase2_')
     print(f'training {decisioner_architechture} model finished!')
 
     return df_train_full, df_test, decisioner, \

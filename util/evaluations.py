@@ -177,14 +177,20 @@ def plot_pcl_accuracy_vs_epsilon(results: dict[str, pd.DataFrame],
 
     for ax, model_type in zip(axes, attack_types):
         df = results[model_type]
-        steps = sorted(df['t'].unique())
-        cmap = plt.cm.viridis(np.linspace(0, 1, len(steps)))
+        numeric_steps = sorted(t for t in df['t'].unique() if not isinstance(t, str))
+        str_steps = sorted(t for t in df['t'].unique() if isinstance(t, str))
+        cmap = plt.cm.viridis(np.linspace(0, 1, max(len(numeric_steps), 1)))
 
-        for color, step in zip(cmap, steps):
+        for i, step in enumerate(numeric_steps):
             subset = df[df['t'] == step].sort_values('epsilon')
             label = 'original' if step == 999999 else str(step)
             ax.plot(subset['epsilon'], subset['accuracy'], marker='o', markersize=3,
-                    label=label, color=color)
+                    label=label, color=cmap[i])
+
+        for step in str_steps:
+            subset = df[df['t'] == step].sort_values('epsilon')
+            ax.plot(subset['epsilon'], subset['accuracy'], marker='D', markersize=5,
+                    label=step, color='red', linewidth=2.5, linestyle='--', zorder=5)
 
         ax.set_title(model_type)
         ax.set_xlabel('epsilon')
@@ -208,7 +214,7 @@ def plot_pcl_accuracy_vs_epsilon(results: dict[str, pd.DataFrame],
 def evaluate_print_decisioner(class_correct: list, class_total: list,
                               loss: float, epoch: int, dataset_size: int,
                               n_classes: int, classes: list[str],
-                              epsilon_stats: dict) -> None:
+                              epsilon_stats: dict) -> tuple[float, float]:
     """Prints decisioner training/evaluation metrics to stdout.
 
     Computes overall accuracy and per-epsilon accuracy from the running
@@ -223,6 +229,9 @@ def evaluate_print_decisioner(class_correct: list, class_total: list,
         n_classes: Number of output classes.
         classes: Sorted list of class name strings.
         epsilon_stats: Dict mapping epsilon value → [correct_count, total_count].
+
+    Returns:
+        Tuple of (avg_loss, accuracy) for the current epoch.
     """
     avg_loss = loss / dataset_size
     correct_sum = np.sum(class_correct)
@@ -238,23 +247,28 @@ def evaluate_print_decisioner(class_correct: list, class_total: list,
         acc = eps_correct / eps_count
         print(f'eps {eps}: {acc} ({eps_correct} / {eps_count})')
 
+    return avg_loss, accuracy
 
-def plot_loss_and_acc(df: pd.DataFrame, output_path: str) -> None:
+
+def plot_loss_and_acc(df: pd.DataFrame, output_path: str, prefix: str = '') -> None:
     """Saves training and validation loss/accuracy plots to disk.
 
     Generates two PNG files in `output_path`:
-    - `average_loss.png`: train vs. validation average loss per epoch.
-    - `accuracy_per_epoch.png`: train vs. validation accuracy per epoch.
+    - `<prefix>average_loss.png`: train vs. validation average loss per epoch.
+    - `<prefix>accuracy_per_epoch.png`: train vs. validation accuracy per epoch.
 
     Args:
         df: Results DataFrame containing columns 'ds_type', 'epoch',
             'avg_loss', and 'accuracy'. Rows with ds_type='train' and
             ds_type='validation' are plotted separately.
         output_path: Directory path where the PNG files will be saved.
+        prefix: Optional filename prefix to distinguish plots from multiple
+            training phases (e.g. 'phase1_' or 'phase2_').
     """
     train_df = df[df['ds_type'] == 'train']
     val_df = df[df['ds_type'] == 'validation']
 
+    loss_path = f'{output_path}/{prefix}average_loss.png'
     plt.figure(figsize=(10, 6))
     plt.plot(train_df['epoch'], train_df['avg_loss'], label='Train Loss', marker='o')
     plt.plot(val_df['epoch'], val_df['avg_loss'], label='Validation Loss', marker='o')
@@ -263,9 +277,10 @@ def plot_loss_and_acc(df: pd.DataFrame, output_path: str) -> None:
     plt.ylabel('Loss')
     plt.legend()
     plt.grid(True)
-    plt.savefig(f'{output_path}/average_loss.png')
+    plt.savefig(loss_path)
     plt.close()
 
+    acc_path = f'{output_path}/{prefix}accuracy_per_epoch.png'
     plt.figure(figsize=(10, 6))
     plt.plot(train_df['epoch'], train_df['accuracy'], label='Train Accuracy', marker='o')
     plt.plot(val_df['epoch'], val_df['accuracy'], label='Validation Accuracy', marker='o')
@@ -274,10 +289,10 @@ def plot_loss_and_acc(df: pd.DataFrame, output_path: str) -> None:
     plt.ylabel('Accuracy')
     plt.legend()
     plt.grid(True)
-    plt.savefig(f'{output_path}/accuracy_per_epoch.png')
+    plt.savefig(acc_path)
     plt.close()
 
-    print("Plots generated: average_loss.png, accuracy_per_epoch.png")
+    print(f'Plots saved: {loss_path}, {acc_path}')
 
 
 def evaluate_print(experiment: str, res_df: pd.DataFrame,
