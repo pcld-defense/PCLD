@@ -65,6 +65,8 @@ ROBUSTBENCH_STANDARD_MODELS: list = [
     'Chen2021LTD_WRN34_10',              # WRN-34-10, AT — LTD
     'Jia2022LAS-AT_34_10',               # WRN-34-10, AT — LAS-AT
     'Addepalli2022Efficient_WRN_34_10',   # WRN-34-10, AT — Addepalli et al.
+    # ImageNet standard (non-AT) baselines
+    'Standard_R50',                       # ResNet-50, non-AT ImageNet — He et al. 2016
 ]
 
 
@@ -176,13 +178,32 @@ CLASSIFIER_REGISTRY: dict = {
         robustbench_name='Addepalli2022Efficient_WRN_34_10',
     ),
 
+    # --- RobustBench ImageNet standard (non-AT) baseline ----------------------
+    'resnet50-standard': ClassifierConfig(
+        family='robustbench',
+        optimizer='sgd',
+        weight_decay_imagenet=1e-4,
+        weight_decay_cifar10=5e-4,
+        robustbench_name='Standard_R50',
+    ),
+
+    # --- ResNet (timm) -------------------------------------------------------
+    'resnet50': ClassifierConfig(
+        family='timm',
+        optimizer='sgd',
+        weight_decay_imagenet=1e-4,
+        weight_decay_cifar10=5e-4,
+        timm_name='resnet50',
+        timm_pretrained=True,
+    ),
+
     # --- Vision Transformers (timm) ------------------------------------------
     'xcit-m12': ClassifierConfig(
         family='timm',
         optimizer='adamw',
         weight_decay_imagenet=0.05,
         weight_decay_cifar10=0.05,
-        timm_name='xcit_medium_12_p16_224',
+        timm_name='xcit_medium_24_p16_224',
         timm_pretrained=True,
     ),
 }

@@ -404,11 +404,12 @@ def attacker(experiment: str, dataset: str, attack: str,
 
         y_classes_targeted = y_target.cpu().numpy().tolist()
 
-        # For PCL (paints_inference) both the adaptive and naive models output
-        # (B*Steps, n_classes); repeat labels to match.
+        # For PCL (paints_inference) the adaptive model outputs (B*Steps, n_classes);
+        # repeat labels to match. The naive model is the plain classifier (B, n_classes),
+        # so it always uses the original y_target.
         if output_type == 'paints_inference':
             y_adaptive_attack = y_target.repeat_interleave(paint_steps)
-            y_naive_attack = y_adaptive_attack
+            y_naive_attack = y_target
         else:
             y_adaptive_attack = y_target
             y_naive_attack = y_target

@@ -71,14 +71,16 @@ def _build_model(cfg: ClassifierConfig, n_classes: int,
                 f"Using adversarially pre-trained weights would compromise "
                 f"PCLD's research validity."
             )
-        if dataset_type != 'cifar10':
+        _RB_DATASET_MAP = {'cifar10': 'cifar10', 'imagenet': 'imagenet'}
+        rb_dataset = _RB_DATASET_MAP.get(dataset_type)
+        if rb_dataset is None:
             raise ValueError(
                 f"RobustBench standard models are only available for "
-                f"'cifar10', got {dataset_type!r}."
+                f"{list(_RB_DATASET_MAP)}, got {dataset_type!r}."
             )
         from robustbench.utils import load_model as rb_load_model  # lazy import
         return rb_load_model(model_name=cfg.robustbench_name,
-                             dataset='cifar10', threat_model='Linf')
+                             dataset=rb_dataset, threat_model='Linf')
 
     raise ValueError(
         f"Unknown architecture family {cfg.family!r}. "

@@ -105,6 +105,15 @@ def create_ds_loader(path: str, transform: transforms.Compose,
         ImageFolderWithPaths and dataloader is a torch DataLoader.
     """
     ds = ImageFolderWithPaths(path, transform=transform)
+    # When folder names are plain integers (e.g. painted datasets that store
+    # classes as "0", "1", ..., "999"), ImageFolder's alphabetical sort
+    # produces a wrong class_to_idx ("100" → 3 instead of 100).  Remap so
+    # that folder name == label index, matching what the model expects.
+    if all(c.isdigit() for c in ds.classes):
+        ds.class_to_idx = {c: int(c) for c in ds.classes}
+        ds.samples = [(p, int(ds.classes[t])) for p, t in ds.samples]
+        ds.imgs = ds.samples
+        ds.targets = [t for _, t in ds.samples]
     loader = torch.utils.data.DataLoader(ds, batch_size=batch_size, shuffle=shuffle,
                                          num_workers=num_workers, pin_memory=False)
     return ds, loader
