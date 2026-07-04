@@ -117,7 +117,8 @@ def _build_optimizer(cfg: ClassifierConfig, net: nn.Module,
 # ---------------------------------------------------------------------------
 
 def get_net(dataset_type: str, device: str, model_type: str = 'wrn-70-16',
-            weights: Optional[str] = None) -> nn.Module:
+            weights: Optional[str] = None,
+            n_classes: Optional[int] = None) -> nn.Module:
     """Builds and returns a classifier for the specified dataset and architecture.
 
     Args:
@@ -128,6 +129,12 @@ def get_net(dataset_type: str, device: str, model_type: str = 'wrn-70-16',
         weights: Path to a ``.pth`` checkpoint to load after construction.
             For timm models with ``timm_pretrained=True``, omitting this
             loads hub pretrained weights automatically.
+        n_classes: Number of output classes. When given, this sizes the model
+            head — pass the number of classes in the actual dataset (e.g. 7 for
+            a 7-class ImageNet subset). When ``None``, falls back to the full
+            dataset size for ``dataset_type`` (1000 for ImageNet, 10 for
+            CIFAR-10). Ignored by ``family='robustbench'`` models, whose head
+            is fixed by their pretrained weights.
 
     Returns:
         The classifier network moved to ``device``.
@@ -142,7 +149,8 @@ def get_net(dataset_type: str, device: str, model_type: str = 'wrn-70-16',
         )
 
     cfg = CLASSIFIER_REGISTRY[model_type]
-    n_classes = _DATASET_NUM_CLASSES[dataset_type]
+    if n_classes is None:
+        n_classes = _DATASET_NUM_CLASSES[dataset_type]
 
     # Suppress hub weights when a local checkpoint will be loaded next.
     model = _build_model(cfg, n_classes, use_pretrained=(weights is None),
@@ -156,7 +164,8 @@ def get_net(dataset_type: str, device: str, model_type: str = 'wrn-70-16',
 
 def get_net_and_optim(dataset_type: str, device: str, lr: float,
                       model_type: str = 'wrn-70-16',
-                      weights: Optional[str] = None) -> tuple:
+                      weights: Optional[str] = None,
+                      n_classes: Optional[int] = None) -> tuple:
     """Builds the network together with its loss function, optimiser, and scheduler.
 
     Optimizer and weight-decay are chosen per architecture from the registry;
@@ -168,6 +177,8 @@ def get_net_and_optim(dataset_type: str, device: str, lr: float,
         lr: Initial learning rate.
         model_type: Key in ``CLASSIFIER_REGISTRY``, forwarded to ``get_net``.
         weights: Optional checkpoint path, forwarded to ``get_net``.
+        n_classes: Number of output classes, forwarded to ``get_net``. When
+            ``None``, falls back to the full dataset size for ``dataset_type``.
 
     Returns:
         Tuple of ``(net, criterion, optimizer, scheduler)`` where:
@@ -177,7 +188,8 @@ def get_net_and_optim(dataset_type: str, device: str, lr: float,
             scheduler: ``CosineAnnealingLR`` over 200 epochs.
     """
     cfg = CLASSIFIER_REGISTRY[model_type]
-    net = get_net(dataset_type, device, model_type=model_type, weights=weights)
+    net = get_net(dataset_type, device, model_type=model_type, weights=weights,
+                  n_classes=n_classes)
     criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
     optimizer = _build_optimizer(cfg, net, lr, dataset_type)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=200)

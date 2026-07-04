@@ -57,6 +57,7 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
 
     first_ds = loaders[splits[0]][0]
     classes = sorted(first_ds.class_to_idx.keys())
+    n_classes = len(classes)
 
     actor, renderer = load_painter(ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH, device)
 
@@ -81,7 +82,7 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
     print('-' * NUM_OF_HYPHENS)
     print(f'Load pre-trained classifier model...')
     clf_local_path = os.path.join(RESOURCES_MODELS_DIR, classifier_experiment, 'best_model.pth')
-    clf = get_net(dataset_type, device, model_type, clf_local_path)
+    clf = get_net(dataset_type, device, model_type, clf_local_path, n_classes=n_classes)
     clf.eval()
 
     # Wrap classifier with internal normalization (RobustBench convention).

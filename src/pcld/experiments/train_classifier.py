@@ -50,7 +50,8 @@ def main_train_classifier(args: argparse.Namespace, device: str) -> None:
     save_args_json(args, os.path.join(RESOURCES_RESULTS_DIR, experiment_name))
     results_df = pd.DataFrame()
 
-    net, criterion, optimizer, scheduler = get_net_and_optim(dataset_type, device, lr, model_type, pretrained_weights)
+    net, criterion, optimizer, scheduler = get_net_and_optim(dataset_type, device, lr, model_type, pretrained_weights,
+                                                             n_classes=n_classes)
     best_val_loss = float('inf')
 
     print(f'\nrun train_validate phase to find the best epoch\n')

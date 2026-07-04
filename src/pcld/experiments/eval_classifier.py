@@ -120,7 +120,7 @@ def main_eval_classifier(args: argparse.Namespace, device: str) -> None:
 
     weights_path = _resolve_weights(args, model_type)
     print(f'Loading classifier (model_type={model_type!r}, weights={weights_path!r})')
-    net = get_net(dataset_type, device, model_type, weights_path)
+    net = get_net(dataset_type, device, model_type, weights_path, n_classes=n_classes)
     net.eval()
 
     criterion = nn.CrossEntropyLoss()
