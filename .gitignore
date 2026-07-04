@@ -22,15 +22,31 @@ venv/
 # Environment / secrets
 .env
 
-# IDE
+# IDE / editor
 *.xml
 *.iml
 .idea/
+.vscode/
+*.swp
+*~
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Agent / workflow scratch (not part of the project)
 .claude
+CLAUDE.md
+tasks/
+test_stuff/
 
 # Misc
 *.pt
-CLAUDE.md
 
 # Stray Hydra run artifact if run.py is launched from the repo root
 /config_snapshot.yaml
