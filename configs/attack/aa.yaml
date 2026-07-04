@@ -1,0 +1,14 @@
+# AutoAttack (standard ensemble). Reference upper bound on robustness.
+attack:
+  attack: aa
+  attack_direction: untargeted
+  attack_norm: linf
+  epsilons: [8]
+  attack_nb_iter: 100            # AutoAttack manages its own budget
+  attack_nb_restarts: 1
+  multi_step_loss_weight: 0.0
+  eot_samples: 1
+  use_apgd: 0
+  targeted_jumps_allowed: 6
+  run_naive_attack: 0
+  save_parquet: 1

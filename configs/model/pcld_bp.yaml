@@ -1,0 +1,14 @@
+# Full PCLD pipeline: painted-ImageNet classifier + conv decisioner.
+model:
+  model_type: wrn-70-16          # only used when (re)training a classifier
+  pretrained_weights: null
+  classifier_experiment: train_clf_bp        # resources/models/<name>/model.pth
+  decisioner_experiment: train_decisioner_conv_fgsm
+  decisioner_architechture: conv             # conv | fc
+  joint_surrogate: null          # path to a JointPainterSurrogate .pth, or null
+  # training knobs (train_classifier / train_decisioner)
+  max_epochs: 51
+  lr: 0.01
+  patience: 5
+  find_best_epoch: 1
+  max_train_epsilon: 20

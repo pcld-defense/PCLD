@@ -1,0 +1,31 @@
+# @package _global_
+# Multi-model RobustBench comparison. `scripts/sweep.py` runs the configured
+# attack against every model in `comparison.models` and emits one comparison
+# table (CSV + LaTeX) of clean / robust accuracy.
+#
+# Add a model to compare against = add one line to comparison.models below.
+defaults:
+  - override /dataset: cifar10
+  - override /model: robustbench
+  - override /attack: pgd
+
+experiment_type: eval_classifier
+experiment_name: rb_sweep_cifar10_linf
+batch_size: 64
+seed: 42
+
+dataset:
+  splits: [test]
+
+attack:
+  attack: pgd
+  epsilons: [8]
+  attack_nb_iter: 20
+  targeted_jumps_allowed: 1     # CIFAR-10 has 10 classes
+
+comparison:
+  num_samples: 512              # cap eval set for speed; null = full split
+  models:
+    - {name: wrn-28-10-standard,  threat_model: Linf, dataset: cifar10}
+    - {name: wrn-28-10-carmon2019, threat_model: Linf, dataset: cifar10}
+    - {name: wrn-28-10-wang2023,  threat_model: Linf, dataset: cifar10}

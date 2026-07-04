@@ -1,0 +1,31 @@
+# Root config. Compose an experiment from the groups below; override any leaf
+# on the CLI, e.g.:
+#   python scripts/run.py experiment=smoke_test batch_size=4 attack.epsilons='[4,8]'
+defaults:
+  - dataset: subset_of_imagenet
+  - model: pcld_bp
+  - attack: pgd
+  - _self_
+  - experiment: null
+
+# What to run. One of: paint_dataset, train_classifier, eval_classifier,
+# attack_pcl, train_decisioner, attack_pcld, train_surrogate_painter.
+experiment_type: attack_pcld
+experiment_name: default_run
+
+batch_size: 16
+seed: 42
+deterministic: false
+
+# Painter stroke-count checkpoints fed to the decisioner (t steps).
+output_every: [50, 100, 200, 300, 400, 500, 600, 700,
+               950, 1200, 1700, 2200, 3200, 4200, 5200]
+
+hydra:
+  run:
+    dir: ${oc.env:RESOURCES_RESULTS_DIR,results}/${experiment_name}
+  sweep:
+    dir: ${oc.env:RESOURCES_RESULTS_DIR,results}/${experiment_name}
+    subdir: ${hydra.job.num}
+  job:
+    chdir: false

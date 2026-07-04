@@ -1,0 +1,21 @@
+# @package _global_
+# Paper main experiment: adaptive targeted PGD-10 against full PCLD on the
+# 7-class ImageNet subset, at eps = {3, 9}/255.
+defaults:
+  - override /dataset: subset_of_imagenet
+  - override /model: pcld_bp
+  - override /attack: pgd
+
+experiment_type: attack_pcld
+experiment_name: paper_pcld_pgd10_targeted
+batch_size: 10
+seed: 42
+
+dataset:
+  splits: [test]
+
+attack:
+  attack_direction: targeted
+  attack_nb_iter: 10
+  epsilons: [3, 9]
+  targeted_jumps_allowed: 6

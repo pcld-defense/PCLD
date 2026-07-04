@@ -1,0 +1,10 @@
+# Full CIFAR-10, auto-downloadable from HuggingFace on first use.
+dataset:
+  name: cifar10
+  dataset_type: cifar10
+  splits: [test]
+  preprocessing: null
+  train_preprocessing: null
+  download:
+    source: huggingface         # fetch/cache via the data registry
+    hf_name: uoft-cs/cifar10

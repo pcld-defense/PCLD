@@ -1,0 +1,23 @@
+# @package _global_
+# Fast end-to-end sanity check: a handful of images, FGSM (deterministic),
+# two small epsilons, on whatever painted-classifier weights are present.
+# Also the config used for the legacy-vs-refactor equivalence proof.
+defaults:
+  - override /dataset: subset_of_imagenet
+  - override /model: pcld_bp
+  - override /attack: fgsm
+
+experiment_type: attack_pcld
+experiment_name: smoke_test
+batch_size: 4
+seed: 42
+deterministic: true
+
+dataset:
+  splits: [test]
+
+attack:
+  attack: fgsm
+  attack_direction: untargeted
+  epsilons: [0, 3]
+  save_parquet: 1
