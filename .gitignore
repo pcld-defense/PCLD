@@ -34,3 +34,6 @@ CLAUDE.md
 
 # Stray Hydra run artifact if run.py is launched from the repo root
 /config_snapshot.yaml
+
+# Local mermaid render scratch
+/.mmtmp/

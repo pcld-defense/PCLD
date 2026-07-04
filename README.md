@@ -11,6 +11,87 @@ Anonymous Author 1, Anonymous Author 2
 ## Abstract
 Despite advances in adversarial training and input transforms, deep networks remain vulnerable to adversarial attacks. We study a defense that couples stroke-based rendering with a decision module trained on classifier confidence trajectories. Our Painter–Classifier–Decisioner (PCLD) framework renders intermediate canvases at increasing stroke counts and lets a lightweight decisioner select the final prediction based on the evolving confidences. We evaluate PCLD under adaptive white-box conditions (BPDA+EOT) and AutoAttack, and run standard sanity checks to avoid gradient-obfuscation pitfalls. In a 7-class ImageNet subset, PCLD improves robustness at moderate to large $\ell_\infty$ budgets while preserving benign accuracy, and shows a transfer from FGSM-based decisioner training to stronger attacks in our setting. We also discuss runtime–accuracy trade-offs and an early-exit design that reduces average latency.
 
+## Architecture
+
+### Defense pipeline (PCLD forward pass)
+
+An input image is rendered by the **Painter** into a stack of canvases at
+increasing stroke counts. Every canvas is classified independently, producing a
+softmax **confidence trajectory** across paint steps. The **Decisioner** reads
+that trajectory and emits the final label. Because the painter is
+non-differentiable, adaptive attacks backprop through a **BPDA surrogate**
+(one differentiable model per paint step) instead of the real renderer.
+
+```mermaid
+flowchart LR
+    X["Input image<br/>(B, 3, H, W) in [0,1]"] --> P
+
+    subgraph P["Painter (painter/)"]
+        direction TB
+        A["ActorResNet<br/>stroke params"] --> R["RendererFCN<br/>stroke → alpha masks"]
+    end
+
+    P --> C["Canvases at t steps<br/>(B, Steps, 3, H, W)<br/>+ original at t=∞"]
+    C --> CLF["Classifier<br/>(NormalizedModel wrapper)<br/>per-canvas softmax"]
+    CLF --> TRAJ["Confidence trajectory<br/>(B, Steps, n_classes)"]
+    TRAJ --> DEC["Decisioner<br/>1D-Conv or FC"]
+    DEC --> Y["Final label<br/>(B, n_classes)"]
+
+    %% Adaptive-attack gradient path
+    SUR["BPDA surrogate painter<br/>1 model per step"] -.->|"backward: Jacobian-vector product<br/>(Athalye et al. 2018)"| P
+    Y -.->|"gradient of loss w.r.t. x<br/>(+ optional per-step loss)"| SUR
+
+    classDef novel fill:#ffe8cc,stroke:#e8850c,color:#000;
+    class P,SUR,DEC novel;
+```
+
+> Orange = the paper's novel contribution (stroke painter, BPDA surrogate,
+> decisioner). Classifier and data plumbing are standard components.
+
+**Model wrappers** (`src/pcld/attacks/pcld_bpda.py`): `PCLD` is the full pipeline
+used for the adaptive attack; `PCL` is Painter→Classifier only (generates
+decisioner training data); `CLD` is Classifier→Decisioner on pre-painted inputs
+(naïve baseline); `BPDAPainter` wraps the renderer with the surrogate gradient.
+
+### Experiment framework (config → run → results)
+
+Every experiment is one Hydra config flattened into the arguments the stage
+runner consumes, wired to pluggable **registries** for datasets, models, and
+attacks. Each run seeds all RNGs, snapshots its config, and writes structured
+results.
+
+```mermaid
+flowchart TB
+    CFG["configs/*.yaml<br/>(dataset · model · attack · experiment)"] --> RUN["scripts/run.py<br/>(Hydra + CLI overrides)"]
+    RUN --> SEED["seed_everything · config snapshot"]
+    SEED --> NAV["experiment_navigator<br/>dispatch by experiment_type"]
+
+    NAV --> DATA["data registry<br/>load / auto-download by name"]
+    NAV --> MODEL["model registry<br/>classifier · decisioner · RobustBench"]
+    NAV --> ATK["attack registry<br/>fgsm · pgd · aa"]
+
+    DATA --> EVAL["batched attack + eval loop<br/>(util attacker)"]
+    MODEL --> EVAL
+    ATK --> EVAL
+    EVAL --> OUT["results/&lt;run&gt;/<br/>parquet · metrics.json · comparison.{csv,tex}"]
+```
+
+### Five-stage workflow
+
+The defense is trained and evaluated as a chain of `experiment_type` stages,
+each runnable from one config:
+
+```mermaid
+flowchart LR
+    S1["paint_dataset<br/>render B_p"] --> S2["train_classifier<br/>on painted images"]
+    S2 --> S3["attack_pcl<br/>BPDA → confidence<br/>trajectories"]
+    S3 --> S4["train_decisioner<br/>on trajectories"]
+    S4 --> S5["attack_pcld<br/>adaptive BPDA+EOT<br/>on full pipeline"]
+
+    SUR["train_surrogate_painter<br/>(one surrogate per step)"] -.->|"provides BPDA gradients"| S3
+    SUR -.-> S5
+```
+
 ## Requirements & setup
 
 The project is an installable package (`src/pcld`). Create a virtual
@@ -92,6 +173,13 @@ python scripts/data/download.py --dataset cifar10 --splits train test
 Register a new dataset by adding a builder in
 [`src/pcld/data/registry.py`](src/pcld/data/registry.py) with
 `@DATASETS.register('name')` — no runner changes.
+
+**Class count is derived from the data.** The classifier head is sized to the
+number of class folders in the dataset, so a 7-class ImageNet subset builds a
+7-class model and full ImageNet builds 1000. When no dataset is available to
+infer from, it falls back to the full size for `dataset_type` (imagenet=1000,
+cifar10=10). RobustBench models are the exception — their head is fixed by the
+pretrained weights.
 
 ## Comparing against RobustBench models
 
