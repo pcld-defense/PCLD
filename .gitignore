@@ -41,7 +41,6 @@ Thumbs.db
 
 # Agent / workflow scratch (not part of the project)
 .claude
-CLAUDE.md
 tasks/
 test_stuff/
 
