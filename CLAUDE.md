@@ -6,131 +6,127 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 PCLD (Painter-Classifier-Decisioner) is an adversarial robustness defense framework for image classification. It couples stroke-based rendering with a decisioner trained on classifier confidence trajectories across paint steps. The defense pipeline renders multiple intermediate canvases at increasing stroke counts, classifies each, and uses a decisioner to pick the final prediction.
 
+The codebase is a config-driven experiment framework: an installable package under `src/pcld/`, Hydra YAML configs under `configs/`, and thin CLIs under `scripts/`. See `README.md` for the architecture diagrams and `VERIFICATION.md` for the behaviour-equivalence procedure.
+
 ## Setup
 
-### Install dependencies
+### Install dependencies (pinned) + create the venv
 ```bash
-pip install -r requirements.txt
+make setup-cuda        # Linux/cluster: .venv + CUDA 12.1 torch 2.5.1 + `pip install -e .`
+make setup             # CPU-only variant
+# Windows: powershell -ExecutionPolicy Bypass -File scripts\setup_env.ps1 -Cuda
 ```
+All dependency versions are pinned in `pyproject.toml` (torch/torchvision/robustbench included). `requirements.txt` just points at `pip install -e .`.
 
 ### Environment variables (`.env` file)
-The project uses `python-dotenv` to load path configuration. The `.env` at the project root is already configured with absolute paths:
+`python-dotenv` loads path configuration. Copy `.env.example` → `.env` and set:
 ```
-RESOURCES_DIR=/home/idanbib/PCLD/code/resources/
-RESOURCES_DATASETS_DIR=/home/idanbib/PCLD/data/
-RESOURCES_RESULTS_DIR=/home/idanbib/PCLD/results
-RESOURCES_MODELS_DIR=/home/idanbib/PCLD/models
-ACTOR_WEIGHTS_PATH=/home/idanbib/PCLD/models/painter_actor/actor.pkl
-RENDERER_WEIGHTS_PATH=/home/idanbib/PCLD/models/painter_renderer/renderer.pkl
+RESOURCES_DIR, RESOURCES_DATASETS_DIR, RESOURCES_RESULTS_DIR, RESOURCES_MODELS_DIR,
+ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH   (+ HF_TOKEN for dataset downloads)
 ```
-
-Key path locations:
-- **Models** (pretrained + trained): `/home/idanbib/PCLD/models/`
-- **Datasets**: `/home/idanbib/PCLD/data/`
-- **Results** (CSV/Parquet/HDF5): `/home/idanbib/PCLD/results/`
+`.env` is gitignored. To run against a different machine, override the `RESOURCES_*` env vars (they win over `.env` because `load_dotenv` does not override existing env vars).
 
 ### Download pretrained models
-Download the full `models/` folder from [Google Drive](https://drive.google.com/drive/folders/1wydFD78BNzktSY162IYZ5AJMrPE2O43D?usp=drive_link) and place it at `/home/idanbib/PCLD/models/`. Alternatively, run `experiments_stuff.py` to programmatically download individual model files via gdown.
+Download the `models/` folder from [Google Drive](https://drive.google.com/drive/folders/1wydFD78BNzktSY162IYZ5AJMrPE2O43D?usp=drive_link) into `RESOURCES_MODELS_DIR`, or run `python scripts/download_models.py` (gdown).
 
-## Python Environment
-
-Always use the project's virtual environment:
+### GPU check
 ```bash
-/home/idanbib/PCLD/code/.venv/bin/python main.py ...
-```
-
-Before running any experiment, verify GPU availability:
-```bash
-/home/idanbib/PCLD/code/.venv/bin/python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NO GPU')"
+python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NO GPU')"
 ```
 
 ## Running Experiments
 
-All experiments are launched via `main.py` with `--experiment_type`:
+Experiments are config-driven through Hydra. Prefer `scripts/run.py`; the legacy `python main.py --experiment_type ...` CLI still works (same code path).
 
 ```bash
-# 1. Generate painted dataset (B_p) for classifier training
-python main.py --experiment_type paint_dataset --experiment_suff bp --dataset subset_of_imagenet --batch_size 10 --output_every 50,100,200,300,400,500,600,700,950,1200,1700,2200,3200,4200,5200
+# Example presets (configs/experiment/)
+python scripts/run.py experiment=smoke_test          # fast FGSM sanity check
+python scripts/run.py experiment=paper_pcld_pgd10    # adaptive targeted PGD-10 vs PCLD
+python scripts/sweep.py experiment=rb_sweep          # multi-model RobustBench comparison table
 
-# 2. Train classifier on painted images
-python main.py --experiment_type train_classifier --experiment_suff bp --dataset paint_dataset_bp_subset_of_imagenet --batch_size 10 --max_epochs 13 --find_best_epoch 0
+# Override any leaf on the CLI
+python scripts/run.py experiment=paper_pcld_pgd10 batch_size=4 attack.epsilons='[4,8]'
 
-# 3. Attack PCL (Painter-Classifier, no decisioner) — generates decisioner training data
-python main.py --experiment_type attack_pcl --experiment_suff bp_fgsm_untargeted --dataset subset_of_imagenet --batch_size 10 --classifier_experiment train_classifier_bp --attack fgsm --attack_direction untargeted --attack_train 1 --epsilons 0|3|6|9|12
-
-# 4. Train decisioner on PCL attack output
-python main.py --experiment_type train_decisioner --experiment_suff conv_fgsm_untargeted --dataset attack_pcl_bp_fgsm_untargeted --batch_size 10 --decisioner_architechture conv
-
-# 5. Attack full PCLD pipeline (adaptive BPDA+EOT attack)
-python main.py --experiment_type attack_pcld --experiment_suff pgd10_targeted --dataset subset_of_imagenet --batch_size 10 --classifier_experiment train_classifier_bp --decisioner_experiment train_decisioner_conv_fgsm_untargeted --attack pgd --attack_direction targeted --attack_nb_iter 10 --epsilons 4|8
+# Compose ad-hoc without a preset
+python scripts/run.py experiment_type=attack_pcl dataset=cifar10 attack=fgsm
 ```
 
-Outputs:
-- Painted datasets → `/home/idanbib/PCLD/data/<experiment_name>/`
-- Trained models → `/home/idanbib/PCLD/models/<experiment_name>/`
-- Attack results (CSV + Parquet + HDF5) → `/home/idanbib/PCLD/results/<experiment_name>/`
+`experiment_type` is one of: `paint_dataset`, `train_classifier`, `eval_classifier`, `attack_pcl`, `train_decisioner`, `attack_pcld`, `train_surrogate_painter`.
+
+Each run seeds all RNGs (`cfg.seed`), snapshots the resolved config to `<run_dir>/config_snapshot.yaml`, and writes results to `RESOURCES_RESULTS_DIR/<experiment_name>/`. Painted datasets go to `RESOURCES_DATASETS_DIR`, trained models to `RESOURCES_MODELS_DIR`.
+
+### Config system (`configs/`)
+```
+configs/
+  config.yaml            # root; composes the groups below + optional experiment preset
+  dataset/               # subset_of_imagenet, cifar10, ...   (@package dataset)
+  model/                 # pcld_bp, robustbench, ...           (@package model)
+  attack/                # pgd, fgsm, aa                       (@package attack)
+  experiment/            # full presets (# @package _global_, override any group)
+```
+`pcld/utils/config.py:config_to_namespace()` flattens the composed config tree (depth-agnostic) into the same `argparse.Namespace` the experiment entry points consume — this is what keeps the config layer behaviour-preserving. Defaults in `_DEFAULTS` mirror the old `parse_args()` defaults 1:1. `output_every`/`epsilons` still accept delimited strings; `dataset.name` aliases to `args.dataset`.
 
 ## Architecture
 
 ### Three-Component Pipeline
-
 ```
 Input Image → [Painter] → Canvases at t steps → [Classifier] → Confidence trajectories → [Decisioner] → Final label
 ```
 
-**Painter** (`painter/`): Stroke-based neural renderer using two pretrained models:
+**Painter** (`src/pcld/painter/`): stroke-based neural renderer using two pretrained models:
 - `ActorResNet` (ResNet18 backbone) — predicts stroke parameters (5 strokes × 13 params = 65 outputs)
 - `RendererFCN` — renders individual strokes as alpha masks
-- Two-phase painting: global pass (full image, Phase 1), then patched local pass (5×5 grid, Phase 2)
-- `paint()` / `paint_images()` in `painter/painter_utils.py` — main painting functions, output shape `(B, Steps, 3, H, W)`
+- `paint_images()` in `src/pcld/painter/painter_utils.py` — main painting function, output `(B, Steps, 3, H, W)` in [0, 1]
 
-**Classifier** (`model/`): Fine-tuned ResNet18 trained on painted images (from step 2 above).
+**Classifier** (`src/pcld/models/`): built by `classifier.py:get_net()` from the `CLASSIFIER_REGISTRY` in `registry.py` (wrn / timm / robustbench families). Wrapped in `NormalizedModel` so attacks operate in [0, 1] pixel space (RobustBench convention). **`n_classes` is derived from the dataset's class folders** (a 7-class subset builds a 7-class head); it falls back to the full size for `dataset_type` (imagenet=1000, cifar10=10) only when no count is passed. RobustBench models keep their fixed pretrained head.
 
-**Decisioner** (`model/decisioner.py`): Two architectures:
-- `Decisioner1DConv` — 1D conv over the sequence of softmax outputs across paint steps
-- `DecisionerFC` — flattened MLP over all softmax outputs
+**Decisioner** (`src/pcld/models/decisioner.py`): `Decisioner1DConv` (1D conv over the paint-step softmax sequence) or `DecisionerFC` (flattened MLP). Also `DecisionerStepAttention`.
 
-### Key Model Wrappers (`model/pcld_bpda.py`)
-
+### Key Model Wrappers (`src/pcld/attacks/pcld_bpda.py`)
 | Class | Purpose |
 |-------|---------|
-| `PCLD` | Full pipeline: `BPDAPainter → Classifier → Decisioner` (for adaptive attack) |
-| `PCL`  | Painter → Classifier only (no decisioner) |
-| `CLD`  | Classifier → Decisioner on pre-painted inputs (for naïve/baseline attack) |
+| `PCLD` | Full pipeline `BPDAPainter → Classifier → Decisioner` (adaptive attack) |
+| `PCL`  | Painter → Classifier only (generates decisioner training data) |
+| `CLD`  | Classifier → Decisioner on pre-painted inputs (naïve baseline) |
 | `BPDAPainter` | Wraps the non-differentiable painter with BPDA gradient approximation |
-| `BPDAPainterLayer` | Custom `torch.autograd.Function` implementing BPDA; backward uses the surrogate painter's gradient |
+| `BPDAPainterLayer` | `torch.autograd.Function` implementing BPDA; backward uses the surrogate painter's JVP |
 
 ### BPDA Gradient Approximation
+The painter is non-differentiable. BPDA (Athalye et al. 2018) uses a surrogate painter (`PainterSurrogate` in `src/pcld/painter/painter_surrogate.py`) — one ResNet18-based model per paint step — to compute a Jacobian-vector product during backprop. Surrogates are stored at `RESOURCES_MODELS_DIR/train_surrogate_painter/model_t<step>.pth`.
 
-The painter is non-differentiable (rendering with a neural renderer + no backprop). BPDA uses a surrogate painter (`PainterSurrogate_` in `painter/painter_surrogate.py`) — one ResNet18-based model per paint step — to approximate gradients during backprop. Surrogates are stored in `resources/models/train_surrogate_painter/model_t<step>.pth`.
+### Registries (`src/pcld/utils/registry.py`)
+Decorator-based `Registry[T]`. New components register without editing the runner:
+- **Attacks** (`src/pcld/attacks/registry.py`): `ATTACKS` — `fgsm`, `pgd`, `aa`; `attack_batch()` dispatches through it.
+- **Datasets** (`src/pcld/data/registry.py`): `DATASETS` — `ensure_dataset()` is a no-op when the folder exists, else downloads (CIFAR-10 from HuggingFace). ImageNet/subset raise with setup instructions.
+- **Models**: the dict-based `CLASSIFIER_REGISTRY` in `src/pcld/models/registry.py` (add a `ClassifierConfig` entry — see README "Adding a New Classifier Architecture").
 
 ### Experiment Dispatch
+`scripts/run.py` (or `main.py`) → `config_to_namespace` / `parse_args` → `src/pcld/experiments/experiment_navigator.py:apply_experiment()` → one of `src/pcld/experiments/{paint_dataset,train_classifier,eval_classifier,attack_pcl,train_decisioner,attack_pcld,train_surrogate_painter}.py`.
 
-`main.py` → `util/integrative.py:parse_args()` → `experiment/experiment_navigator.py:apply_experiment()` → routes to one of:
-- `experiment/paint_dataset.py`
-- `experiment/train_classifier.py`
-- `experiment/attack_pcl.py`
-- `experiment/train_decisioner.py`
-- `experiment/attack_pcld.py`
-
-### Key `util/` Modules
-
-- `consts.py` — loads `.env` paths, `IMAGENETConsts`, `CIFAR10Consts`, `PainterConsts` (MAX_STEP=80, WIDTH=128, DIVIDE=5)
-- `datasets.py` — `ImageFolderWithPaths`, `get_loaders()`, `transform_dataset()`
-- `attacks.py` — `attack_batch()` (FGSM/PGD/AutoAttack), `attacker()` (full attack loop, saves HDF5 + Parquet)
-- `models.py` — `load_model()` (handles DataParallel prefix stripping), `trainer_decisioner()`, `process_epoch_clf()`
+### Key package modules
+- `src/pcld/utils/consts.py` — loads `.env` paths, `IMAGENETConsts`, `CIFAR10Consts`, `PainterConsts` (currently `MAX_STEP=40`, `WIDTH=128`, `DIVIDE=1`)
+- `src/pcld/utils/config.py` — Hydra config → Namespace adapter; `src/pcld/utils/seeding.py` — `seed_everything()`
+- `src/pcld/data/datasets.py` — `ImageFolderWithPaths`, `get_loaders()` (calls `ensure_dataset`), `transform_dataset()`
+- `src/pcld/attacks/attacks.py` — `attack_batch()`, `pgd_with_multi_step_loss()` (APGD schedule, restarts, custom loss), `attacker()` (full loop, saves Parquet/CSV)
+- `src/pcld/models/train_utils.py` — `load_model()` (strips DataParallel `module.` prefix), `trainer_decisioner()`, `process_epoch_clf()`
+- `src/pcld/eval/metrics.py` — `robust_accuracy()`, `summarize_run()`, `emit_table()` (CSV + LaTeX comparison tables)
 
 ### Default Paint Steps
+`output_every` = `50,100,200,300,400,500,600,700,950,1200,1700,2200,3200,4200,5200` (15 steps + original image = 16 total paint steps fed to the decisioner).
 
-The standard `output_every` schedule: `50,100,200,300,400,500,600,700,950,1200,1700,2200,3200,4200,5200` (15 steps + original image = 16 total paint steps fed to the decisioner).
+## Testing
+
+```bash
+PYTHONPATH=src pytest tests/ -q
+```
+`tests/` runs without GPU. Torch-dependent tests self-skip if torch/cleverhans/robustbench are absent. Notable: `test_attack_equivalence.py` proves the registry dispatch is bit-identical to a direct attack call; `test_config.py` checks every preset flattens to the expected Namespace; `test_classifier_nclasses.py` checks the head follows `n_classes`.
 
 ## Code Style
 
-- Use Python type hints in function signatures for all parameters and return values. Do **not** repeat types inside docstrings.
-- Document all functions and classes with **Google-style docstrings** (summary line, then `Args:`, `Returns:`, `Raises:` sections as needed).
+- Python type hints in signatures for all params and return values. Do **not** repeat types inside docstrings.
+- **Google-style docstrings** on all functions/classes (summary, then `Args:`/`Returns:`/`Raises:`).
 
 ```python
-# Correct
 def paint_images(x: torch.Tensor, output_every: list[int], device: str,
                  actor: nn.Module, renderer: nn.Module,
                  add_original: bool = True) -> torch.Tensor:
@@ -150,23 +146,11 @@ def paint_images(x: torch.Tensor, output_every: list[int], device: str,
     ...
 ```
 
-## Run Naming Conventions
-
-Experiment names are constructed as `<experiment_type>_<architecture/suff>_<dataset>_<variant>`. Match the patterns observed in `/home/idanbib/PCLD/results/`:
-
-| Pattern | Example |
-|---------|---------|
-| `train_classifier_<arch>_<dataset>` | `train_classifier_wrn34_cifar10` |
-| `train_classifier_<arch>_<dataset>_<variant>` | `train_classifier_wrn34_cifar10_paints`, `train_classifier_wrn34_cifar10_augmented` |
-| `attack_pcl_<arch>_<attack>_<direction>_<norm>` | `attack_pcl_wrn34-10-standard_fgsm_untargeted_linf` |
-| `eval_clf_<arch>_<dataset>` | `eval_clf_wrn34-10-standard_cifar10` |
-| `eval_rb_<model>_<variant>` | `eval_rb_carmon2019_paints` |
-
-The `--experiment_suff` CLI flag appends a suffix to the experiment type, forming the full name used for output directories.
-
 ## Important Notes
 
-- Epsilon values in CLI args are integers (e.g., `--epsilons 3|9`) and converted to floats internally (`epsilon / 255.0`) for attacks
-- Multi-GPU is supported via `torch.nn.DataParallel`; `load_model()` strips the `module.` prefix from DataParallel checkpoints
-- The `attack_train` flag in `attack_pcld` controls whether train/val splits are also attacked (used for generating decisioner training data)
-- Targeted attacks randomly select a target class `(y + randint(1, 6)) % n_classes`; `targeted_jumps_allowed=6` for targeted, `1` for untargeted
+- Epsilon CLI/config values are integers (e.g. `epsilons: [3, 9]`), converted to floats internally (`epsilon / 255.0`).
+- `n_classes` is dataset-driven everywhere (`get_net(..., n_classes=...)`); don't reintroduce hardcoded class counts.
+- Multi-GPU via `torch.nn.DataParallel`; `load_model()` strips the `module.` prefix.
+- Targeted attacks pick a target class `(y + randint(1, targeted_jumps_allowed+1)) % n_classes`; use `targeted_jumps_allowed=6` for ImageNet, `1` for CIFAR-10.
+- Behaviour-preservation is a hard requirement for this refactor: config → same Namespace, attack dispatch is numerically identical, module moves are inert. Prove equivalence (see `VERIFICATION.md`) before claiming a change is behaviour-preserving.
+- The branch `refactor/experiment-framework` holds the framework; `claude/refactor_rc` is the pre-refactor baseline used for equivalence checks.
