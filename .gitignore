@@ -1,12 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+
+# Data / models / results (large artifacts, never committed)
 /data
 /resources/models
 /notebooks/data
 /notebooks/models
+/models
+/results
+/outputs
+/multirun
+
+# Environment / secrets
+.env
+
+# IDE
 *.xml
 *.iml
-.env
-.idea
-.pt
-.venv
+.idea/
 .claude
+
+# Misc
+*.pt
 CLAUDE.md
