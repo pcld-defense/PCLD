@@ -1,10 +1,9 @@
 # 7-class ImageNet subset used for the paper's main experiments.
-dataset:
-  name: subset_of_imagenet     # folder under RESOURCES_DATASETS_DIR
-  dataset_type: imagenet       # selects consts / normalization / class count
-  splits: [test]               # which split folders to load
-  preprocessing: null          # eval transform key; null = ToTensor + Normalize
-  train_preprocessing: null    # train transform key (train_classifier only)
-  # auto-download settings (used by the data registry on first use)
-  download:
-    source: null               # null = must already exist on disk
+# @package dataset
+name: subset_of_imagenet       # folder under RESOURCES_DATASETS_DIR
+dataset_type: imagenet         # selects consts / normalization / class count
+splits: [test]                 # which split folders to load
+preprocessing: null            # eval transform key; null = ToTensor + Normalize
+train_preprocessing: null      # train transform key (train_classifier only)
+download:
+  source: null                 # null = must already exist on disk

@@ -1,14 +1,14 @@
 # A RobustBench (or timm/wrn) classifier used standalone for baseline eval.
 # model_type must be a key in pcld.models.registry.CLASSIFIER_REGISTRY.
-model:
-  model_type: wrn-28-10-standard
-  pretrained_weights: null       # robustbench models auto-load their weights
-  classifier_experiment: null
-  decisioner_experiment: null
-  decisioner_architechture: null
-  joint_surrogate: null
-  max_epochs: 51
-  lr: 0.01
-  patience: 5
-  find_best_epoch: 1
-  max_train_epsilon: 20
+# @package model
+model_type: wrn-28-10-standard
+pretrained_weights: null         # robustbench models auto-load their weights
+classifier_experiment: null
+decisioner_experiment: null
+decisioner_architechture: null
+joint_surrogate: null
+max_epochs: 51
+lr: 0.01
+patience: 5
+find_best_epoch: 1
+max_train_epsilon: 20

@@ -1,8 +1,58 @@
 # Verifying the refactor is behaviour-preserving
 
 The refactor must produce the **same numerical attack results** through the new
-config-driven interface as the pre-refactor code did. This document gives the
-exact commands to prove it on the cluster.
+config-driven interface as the pre-refactor code did.
+
+## What has been verified locally (results)
+
+Run on the dev box (CPU torch 2.5.1), all with concrete numbers:
+
+1. **Attack dispatch is bit-identical.** The only attack-path code changed by
+   the refactor is `attack_batch` (if/elif → registry lookup). Comparing the
+   refactored `attack_batch` against the **pre-refactor** `attack_batch`
+   (imported from a `claude/refactor_rc` worktree) on the 8 real ImageNet toy
+   images through a real ResNet-18:
+
+   | attack | `max |legacy − new|` |
+   |--------|----------------------|
+   | FGSM   | `0.000e+00` |
+   | PGD (2 restarts, APGD) | `0.000e+00` |
+
+   Bit-for-bit identical, including the risky PGD path with restarts + APGD.
+   This is also locked in as `tests/test_attack_equivalence.py` (self-contained:
+   dispatched result == direct primitive call), which runs on the cluster too.
+
+2. **Config layer → same arguments.** `tests/test_config.py` (5 tests) asserts
+   every preset flattens to the expected legacy `Namespace`.
+
+3. **Metrics** `tests/test_metrics.py` (3 tests). Full suite: **10 passed.**
+
+4. **New pipeline plumbing runs.** `scripts/run.py experiment=smoke_test`
+   composes the config, seeds, snapshots it, loads the painter + 16 surrogates
+   + classifier, and constructs the pipeline end-to-end.
+
+### Why the full end-to-end parquet-diff must run on the cluster
+
+The locally-available checkpoints are **version-mismatched with the current
+model code, independently of this refactor** (the same failure occurs on the
+pre-refactor `claude/refactor_rc` baseline):
+
+- `train_victim_clf_bp` is a **7-class** ResNet-18, but `attack_pcld` hardcoded
+  1000 ImageNet classes. (Fixed here: classes are now derived from the dataset,
+  matching `attack_pcl`. This is required for the pipeline to run at all with a
+  subset classifier.)
+- `train_decisioner_conv_fgsm` was trained with an **older `Decisioner1DConv`**
+  whose conv reads `num_steps` (16) input channels; the current definition
+  reads `num_classes`. Neither the refactored nor the pre-refactor code can load
+  it. This is a weights/code drift that predates the refactor.
+
+So the local box cannot complete a full `attack_pcld` run with these weights.
+Run the parquet-level equivalence below on the cluster, where the checkpoints
+match the current model definitions.
+
+## Full end-to-end equivalence (run on the cluster)
+
+This document gives the exact commands to prove it on the cluster.
 
 ## Why the smoke config is the equivalence config
 

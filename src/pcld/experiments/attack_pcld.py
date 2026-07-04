@@ -53,15 +53,20 @@ def main_attack_pcld(args: argparse.Namespace, device: str) -> None:
          args.decisioner_experiment, args.attack, args.attack_direction, args.attack_nb_iter, args.run_naive_attack,
          args.epsilons)
 
-    n_classes = len(IMAGENET_2012_LABELS.keys())
-    classes = sorted(IMAGENET_2012_LABELS.values())
-
     # RobustBench convention: DataLoader returns [0, 1] (no normalization).
     # The classifier normalizes internally via NormalizedModel wrapper.
     split_transform = transform_dataset(dataset_type=args.dataset_type,
                                         preprocessing='ToTensorOnly')
     transform_dict = {split: split_transform for split in args.splits}
     loaders = get_loaders(dataset, args.splits, transform_dict, batch_size)
+
+    # Derive the class set from the dataset so the pipeline matches the trained
+    # classifier/decisioner class count. The paper's classifier is trained on a
+    # 7-class ImageNet subset, so hardcoding all 1000 ImageNet labels would not
+    # match the shipped checkpoints. This mirrors attack_pcl's behaviour.
+    first_ds = loaders[args.splits[0]][0]
+    classes = sorted(first_ds.class_to_idx.keys())
+    n_classes = len(classes)
 
     actor, renderer = load_painter(ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH, device)
 

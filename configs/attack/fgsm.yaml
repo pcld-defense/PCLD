@@ -1,15 +1,15 @@
 # Single-step FGSM (CleverHans). Deterministic given a seed — used for the
 # behaviour-equivalence check between the legacy and refactored pipelines.
-attack:
-  attack: fgsm
-  attack_direction: untargeted
-  attack_norm: linf
-  epsilons: [0, 3]
-  attack_nb_iter: 1              # ignored by FGSM
-  attack_nb_restarts: 1
-  multi_step_loss_weight: 0.0
-  eot_samples: 1
-  use_apgd: 0
-  targeted_jumps_allowed: 6
-  run_naive_attack: 0
-  save_parquet: 1
+# @package attack
+attack: fgsm
+attack_direction: untargeted
+attack_norm: linf
+epsilons: [0, 3]
+attack_nb_iter: 1                # ignored by FGSM
+attack_nb_restarts: 1
+multi_step_loss_weight: 0.0
+eot_samples: 1
+use_apgd: 0
+targeted_jumps_allowed: 6
+run_naive_attack: 0
+save_parquet: 1
