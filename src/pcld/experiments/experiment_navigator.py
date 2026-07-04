@@ -1,12 +1,12 @@
 import argparse
 
-from experiment.paint_dataset import main_paint_dataset
-from experiment.train_classifier import main_train_classifier
-from experiment.eval_classifier import main_eval_classifier
-from experiment.attack_pcl import main_attack_pcl
-from experiment.train_decisioner import main_train_decisioner
-from experiment.attack_pcld import main_attack_pcld
-from experiment.train_surrogate_painter import main_train_surrogate_painter
+from pcld.experiments.paint_dataset import main_paint_dataset
+from pcld.experiments.train_classifier import main_train_classifier
+from pcld.experiments.eval_classifier import main_eval_classifier
+from pcld.experiments.attack_pcl import main_attack_pcl
+from pcld.experiments.train_decisioner import main_train_decisioner
+from pcld.experiments.attack_pcld import main_attack_pcld
+from pcld.experiments.train_surrogate_painter import main_train_surrogate_painter
 
 
 def apply_experiment(args: argparse.Namespace, device: str) -> None:

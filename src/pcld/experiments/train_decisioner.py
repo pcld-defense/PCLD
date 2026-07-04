@@ -3,10 +3,10 @@ import math
 import os
 import torch
 
-from util.consts import NUM_OF_HYPHENS, RESOURCES_RESULTS_DIR, RESOURCES_MODELS_DIR
-from util.datasets import concat_to_one_decisioner_dataset
-from util.integrative import save_args_json
-from util.models import trainer_decisioner, get_predictions_df_decisioner, arange_results_decisioner
+from pcld.utils.consts import NUM_OF_HYPHENS, RESOURCES_RESULTS_DIR, RESOURCES_MODELS_DIR
+from pcld.data.datasets import concat_to_one_decisioner_dataset
+from pcld.utils.integrative import save_args_json
+from pcld.models.train_utils import trainer_decisioner, get_predictions_df_decisioner, arange_results_decisioner
 
 
 def main_train_decisioner(args: argparse.Namespace, device: str) -> None:

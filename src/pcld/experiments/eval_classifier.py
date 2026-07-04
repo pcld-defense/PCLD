@@ -5,11 +5,11 @@ from typing import Union
 import pandas as pd
 import torch.nn as nn
 
-from model.classifier import SUPPORTED_MODELS, get_net
-from model.consts import CLASSIFIER_REGISTRY
-from util.consts import RESOURCES_MODELS_DIR, RESOURCES_RESULTS_DIR
-from util.datasets import transform_dataset, get_loaders
-from util.models import process_epoch_clf
+from pcld.models.classifier import SUPPORTED_MODELS, get_net
+from pcld.models.registry import CLASSIFIER_REGISTRY
+from pcld.utils.consts import RESOURCES_MODELS_DIR, RESOURCES_RESULTS_DIR
+from pcld.data.datasets import transform_dataset, get_loaders
+from pcld.models.train_utils import process_epoch_clf
 
 
 def _resolve_weights(args: argparse.Namespace, model_type: str) -> Union[str, None]:

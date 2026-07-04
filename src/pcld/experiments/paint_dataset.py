@@ -6,10 +6,10 @@ import glob
 from tqdm import tqdm
 from torchvision.utils import save_image
 
-from painter.painter_utils import load_painter, paint_images
-from util.consts import RESOURCES_DATASETS_DIR, NUM_OF_HYPHENS, ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH
-from util.datasets import transform_dataset, get_loaders
-from util.integrative import save_args_json
+from pcld.painter.painter_utils import load_painter, paint_images
+from pcld.utils.consts import RESOURCES_DATASETS_DIR, NUM_OF_HYPHENS, ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH
+from pcld.data.datasets import transform_dataset, get_loaders
+from pcld.utils.integrative import save_args_json
 
 
 def paint_dataset(actor, renderer, loaders: tuple, loader_name: str,

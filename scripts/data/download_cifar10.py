@@ -4,7 +4,7 @@ from tqdm import tqdm
 from huggingface_hub import login
 from datasets import load_dataset
 
-from util.consts import RESOURCES_DATASETS_DIR
+from pcld.utils.consts import RESOURCES_DATASETS_DIR
 
 hf_token = os.getenv("HF_TOKEN")
 login(hf_token)

@@ -2,7 +2,7 @@
 Download model files from google drive
 """
 
-from util.consts import NUM_OF_HYPHENS
+from pcld.utils.consts import NUM_OF_HYPHENS
 import inspect
 import os
 import time
@@ -59,4 +59,5 @@ FOLDER_TO_IDS = {
 }
 
 
-download_drive_models()
+if __name__ == '__main__':
+    download_drive_models()

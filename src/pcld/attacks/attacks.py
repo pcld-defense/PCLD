@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from autoattack import AutoAttack
 from cleverhans.torch.attacks.fast_gradient_method import fast_gradient_method
 
-from model.pcld_bpda import BPDAPainterLayer
+from pcld.attacks.pcld_bpda import BPDAPainterLayer
 
 
 def pgd_with_multi_step_loss(

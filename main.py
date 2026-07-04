@@ -1,9 +1,9 @@
 import os
 import warnings
 
-from util.consts import NUM_OF_HYPHENS
-from util.integrative import parse_args
-from experiment.experiment_navigator import apply_experiment
+from pcld.utils.consts import NUM_OF_HYPHENS
+from pcld.utils.integrative import parse_args
+from pcld.experiments.experiment_navigator import apply_experiment
 import torch
 
 torch.manual_seed(42)

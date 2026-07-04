@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from cleverhans.torch.utils import optimize_linear
 
-from painter.painter_surrogate import PainterSurrogate
+from pcld.painter.painter_surrogate import PainterSurrogate
 
 torch.manual_seed(42)
 

@@ -4,7 +4,7 @@ from huggingface_hub import login
 from datasets import load_dataset
 from PIL import Image
 
-from util.consts import IMAGENETConsts, RESOURCES_DATASETS_DIR
+from pcld.utils.consts import IMAGENETConsts, RESOURCES_DATASETS_DIR
 
 hf_token = os.getenv("HF_TOKEN")
 login(hf_token)

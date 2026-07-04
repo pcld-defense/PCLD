@@ -6,10 +6,10 @@ import numpy as np
 import torch
 from matplotlib import pyplot as plt
 
-from painter.paint_utils_old import paint_images as paint_images_old
-from painter.painter_utils import paint_images, load_painter
-from util.consts import ROOT_DIR, RENDERER_WEIGHTS_PATH, ACTOR_WEIGHTS_PATH
-from util.datasets import load_image
+from pcld.painter.paint_utils_old import paint_images as paint_images_old
+from pcld.painter.painter_utils import paint_images, load_painter
+from pcld.utils.consts import ROOT_DIR, RENDERER_WEIGHTS_PATH, ACTOR_WEIGHTS_PATH
+from pcld.data.datasets import load_image
 
 
 def prepare_tensor_show(canvas):

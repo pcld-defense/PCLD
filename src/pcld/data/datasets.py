@@ -7,7 +7,7 @@ import torch
 from PIL import Image
 from torchvision import datasets, transforms
 
-from util.consts import RESOURCES_DATASETS_DIR, IMAGENETConsts, CIFAR10Consts
+from pcld.utils.consts import RESOURCES_DATASETS_DIR, IMAGENETConsts, CIFAR10Consts
 
 
 def load_image(path: str, width: int = 300, height: int = 300) -> np.ndarray:

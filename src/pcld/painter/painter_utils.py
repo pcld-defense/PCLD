@@ -1,8 +1,8 @@
 import torch
 import torch.nn.functional as F
 
-from util.consts import PainterConsts, NUM_OF_HYPHENS
-from painter.painter import ActorResNet, RendererFCN
+from pcld.utils.consts import PainterConsts, NUM_OF_HYPHENS
+from pcld.painter.painter import ActorResNet, RendererFCN
 
 
 # --- 1. Vectorized Utility Functions ---

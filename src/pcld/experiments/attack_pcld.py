@@ -7,18 +7,18 @@ import torch.nn.functional as F
 from torchvision import models
 import torch.nn as nn
 
-from model.decisioner import Decisioner1DConv, DecisionerFC
-from model.normalized_model import NormalizedModel
-from painter.painter_surrogate import (IdentitySurrogate_, PainterSurrogate,
+from pcld.models.decisioner import Decisioner1DConv, DecisionerFC
+from pcld.models.normalized_model import NormalizedModel
+from pcld.painter.painter_surrogate import (IdentitySurrogate_, PainterSurrogate,
                                         load_painter_surrogate, load_joint_surrogate)
-from painter.painter_utils import load_painter, paint_images
-from model.pcld_bpda import BPDAPainter, CLD, PCLD
-from util.attacks import attacker
-from util.consts import NUM_OF_HYPHENS, IMAGENET_2012_LABELS, RESOURCES_RESULTS_DIR, \
+from pcld.painter.painter_utils import load_painter, paint_images
+from pcld.attacks.pcld_bpda import BPDAPainter, CLD, PCLD
+from pcld.attacks.attacks import attacker
+from pcld.utils.consts import NUM_OF_HYPHENS, IMAGENET_2012_LABELS, RESOURCES_RESULTS_DIR, \
     RESOURCES_MODELS_DIR, CIFAR10Consts, IMAGENETConsts, ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH
-from util.datasets import transform_dataset, get_loaders
-from util.integrative import save_args_json
-from util.models import load_model
+from pcld.data.datasets import transform_dataset, get_loaders
+from pcld.utils.integrative import save_args_json
+from pcld.models.train_utils import load_model
 
 
 def main_attack_pcld(args: argparse.Namespace, device: str) -> None:

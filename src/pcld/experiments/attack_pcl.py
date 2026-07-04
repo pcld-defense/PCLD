@@ -3,17 +3,17 @@ import os
 
 import torch
 
-from model.classifier import get_net
-from model.normalized_model import NormalizedModel
-from model.pcld_bpda import BPDAPainter, PCL
-from painter.painter_surrogate import (IdentitySurrogate_, PainterSurrogate,
+from pcld.models.classifier import get_net
+from pcld.models.normalized_model import NormalizedModel
+from pcld.attacks.pcld_bpda import BPDAPainter, PCL
+from pcld.painter.painter_surrogate import (IdentitySurrogate_, PainterSurrogate,
                                         load_painter_surrogate, load_joint_surrogate)
-from painter.painter_utils import load_painter, paint_images
-from util.attacks import attacker
-from util.consts import NUM_OF_HYPHENS, RESOURCES_RESULTS_DIR, RESOURCES_MODELS_DIR, \
+from pcld.painter.painter_utils import load_painter, paint_images
+from pcld.attacks.attacks import attacker
+from pcld.utils.consts import NUM_OF_HYPHENS, RESOURCES_RESULTS_DIR, RESOURCES_MODELS_DIR, \
     ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH, CIFAR10Consts, IMAGENETConsts
-from util.datasets import transform_dataset, get_loaders
-from util.integrative import save_args_json
+from pcld.data.datasets import transform_dataset, get_loaders
+from pcld.utils.integrative import save_args_json
 
 
 def main_attack_pcl(args: argparse.Namespace, device: str) -> None:

@@ -8,9 +8,9 @@ from torch.utils.data import TensorDataset, DataLoader
 import pandas as pd
 import torch
 
-from model.decisioner import Decisioner1DConv, DecisionerFC, DecisionerStepAttention
-from util.consts import RESOURCES_MODELS_DIR
-from util.evaluations import evaluate_print, evaluate_print_decisioner, plot_loss_and_acc, plot_pcl_accuracy_vs_epsilon
+from pcld.models.decisioner import Decisioner1DConv, DecisionerFC, DecisionerStepAttention
+from pcld.utils.consts import RESOURCES_MODELS_DIR
+from pcld.eval.evaluations import evaluate_print, evaluate_print_decisioner, plot_loss_and_acc, plot_pcl_accuracy_vs_epsilon
 
 
 def load_model(model: torch.nn.Module, path: str, device: str) -> torch.nn.Module:

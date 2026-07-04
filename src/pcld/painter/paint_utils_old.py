@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from scipy.ndimage import convolve
 
-from util.consts import NUM_OF_HYPHENS, RESOURCES_MODELS_DIR
+from pcld.utils.consts import NUM_OF_HYPHENS, RESOURCES_MODELS_DIR
 
 
 def large2small(x, divide, width, canvas_cnt):

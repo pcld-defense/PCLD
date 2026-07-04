@@ -1,5 +1,5 @@
 import torch
-from util.consts import IMAGENET_2012_LABELS
+from pcld.utils.consts import IMAGENET_2012_LABELS
 import matplotlib.pyplot as plt
 
 

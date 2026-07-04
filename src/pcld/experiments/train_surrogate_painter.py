@@ -9,14 +9,14 @@ from torch.optim import Adam
 from torchvision import models
 from tqdm import tqdm
 
-from painter.painter_surrogate import PainterSurrogate_, JointPainterSurrogate
-from painter.painter_utils import load_painter, paint_images
-from util.consts import (NUM_OF_HYPHENS, RESOURCES_MODELS_DIR,
+from pcld.painter.painter_surrogate import PainterSurrogate_, JointPainterSurrogate
+from pcld.painter.painter_utils import load_painter, paint_images
+from pcld.utils.consts import (NUM_OF_HYPHENS, RESOURCES_MODELS_DIR,
                          ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH,
                          IMAGENETConsts, CIFAR10Consts)
-from util.datasets import transform_dataset, get_loaders
-from util.integrative import save_args_json
-from util.models import load_model
+from pcld.data.datasets import transform_dataset, get_loaders
+from pcld.utils.integrative import save_args_json
+from pcld.models.train_utils import load_model
 
 
 def _make_surrogate(device: str) -> PainterSurrogate_:

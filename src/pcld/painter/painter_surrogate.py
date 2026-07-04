@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import models
 
-from util.models import load_model
+from pcld.models.train_utils import load_model
 
 torch.manual_seed(42)
 

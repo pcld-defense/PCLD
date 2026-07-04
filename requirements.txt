@@ -1,33 +1,11 @@
-# base
-numpy==1.24.2
-pandas==1.5.3
-tqdm
-python-dotenv
-h5py
-
-# torch
-torch==1.13.1 # pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
-torchvision==0.14.1
-
-# attacks
-cleverhans==4.0.0
-adversarial-robustness-toolbox==1.15.0
-
-# jupyter notebook
-ipython==7.34.0
-notebook==6.5.7
-
-# pre-trained models or datasets from drive or huggingface
-pydrive==1.3.1
-datasets
-
-# images
-opencv-python==4.10.0.82
-scikit-image==0.24.0
-
-robustbench==1.1.1
-timm>=0.9.0 # XCiT-M12 (xcit_medium_12_p16_224)
-git+https://github.com/fra31/auto-attack # autoattack
-git+https://github.com/nottombrown/imagenet_stubs # imagenet_stubs
-
-
+# Pinned dependencies are declared once in pyproject.toml.
+# Install the project (and all pins) in editable mode:
+#
+#   pip install -e .
+#
+# For a CUDA build of torch on Linux, install torch first from the PyTorch
+# index, then the project (pip will keep the already-satisfied pin):
+#
+#   pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu121
+#   pip install -e .
+-e .

@@ -2,12 +2,12 @@ import argparse
 import os
 import pandas as pd
 
-from model.classifier import get_net_and_optim
-from util.consts import RESOURCES_RESULTS_DIR
-from util.datasets import transform_dataset, get_loaders
-from util.evaluations import plot_loss_and_acc
-from util.integrative import save_args_json
-from util.models import process_epoch_clf, get_best_epoch, save_best_cls_model
+from pcld.models.classifier import get_net_and_optim
+from pcld.utils.consts import RESOURCES_RESULTS_DIR
+from pcld.data.datasets import transform_dataset, get_loaders
+from pcld.eval.evaluations import plot_loss_and_acc
+from pcld.utils.integrative import save_args_json
+from pcld.models.train_utils import process_epoch_clf, get_best_epoch, save_best_cls_model
 
 
 def main_train_classifier(args: argparse.Namespace, device: str) -> None:

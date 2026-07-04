@@ -12,9 +12,9 @@ import torch.nn as nn
 import torch.optim as optim
 from robustbench.model_zoo.architectures.wide_resnet import WideResNet
 
-from model.consts import CLASSIFIER_REGISTRY, ClassifierConfig, ROBUSTBENCH_STANDARD_MODELS
-from util.consts import CIFAR10Consts, IMAGENETConsts
-from util.models import load_model
+from pcld.models.registry import CLASSIFIER_REGISTRY, ClassifierConfig, ROBUSTBENCH_STANDARD_MODELS
+from pcld.utils.consts import CIFAR10Consts, IMAGENETConsts
+from pcld.models.train_utils import load_model
 
 # Derived once from dataset consts so they stay the single source of truth.
 _DATASET_NUM_CLASSES: dict = {
