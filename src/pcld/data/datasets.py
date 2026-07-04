@@ -135,11 +135,14 @@ def get_loaders(dataset: str, splits: Union[list, str],
     Returns:
         Dictionary mapping each split name to [dataset, dataloader].
     """
-    ds_local_dir = os.path.join(RESOURCES_DATASETS_DIR, dataset)
+    from pcld.data.registry import ensure_dataset
+
     loaders = {}
 
     for split in splits:
-        path = os.path.join(ds_local_dir, split)
+        # No-op when the folder already exists; downloads on first use for
+        # registered auto-downloadable datasets (e.g. cifar10).
+        path = ensure_dataset(dataset, split, root=RESOURCES_DATASETS_DIR)
         ds, loader = create_ds_loader(path=path, transform=transform_dict[split],
                                       batch_size=batch_size, num_workers=0)
         loaders[split] = [ds, loader]

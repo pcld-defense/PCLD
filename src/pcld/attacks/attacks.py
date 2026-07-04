@@ -7,10 +7,9 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
-from autoattack import AutoAttack
-from cleverhans.torch.attacks.fast_gradient_method import fast_gradient_method
 
 from pcld.attacks.pcld_bpda import BPDAPainterLayer
+from pcld.attacks.registry import ATTACKS
 
 
 def pgd_with_multi_step_loss(
@@ -182,38 +181,16 @@ def attack_batch(model: torch.nn.Module, x: torch.Tensor, attack: str,
     if epsilon == 0:
         return x
 
-    norm_val = np.inf if norm == 'linf' else 2
-
-    if attack == 'fgsm':
-        x_adv = fast_gradient_method(model_fn=model,
-                                     x=x,
-                                     eps=epsilon,
-                                     norm=norm_val,
-                                     y=y_classes_targeted,
-                                     targeted=targeted,
-                                     clip_min=0,
-                                     clip_max=1)
-    elif attack == 'pgd':
-        # Reset BPDA state at the start of each new batch.
-        BPDAPainterLayer.reset()
-        x_adv = pgd_with_multi_step_loss(
-            model=model,
-            x=x,
-            epsilon=epsilon,
-            nb_iter=attack_nb_iter,
-            targeted=targeted,
-            y=y_classes_targeted,
-            loss_fn=loss_fn,
-            nb_restarts=nb_restarts,
-            use_apgd=use_apgd,
-            norm=norm,
-        )
-    elif attack == 'aa':
-        aa_norm = 'Linf' if norm == 'linf' else 'L2'
-        adv_attack = AutoAttack(model, norm=aa_norm, eps=epsilon, version='standard')
-        x_adv = adv_attack.run_standard_evaluation_individual(x, y_classes_targeted)
-
-    return x_adv
+    # Dispatch through the attack registry. Each registered attack consumes
+    # only the kwargs it needs; the code path per attack is identical to the
+    # original if/elif branch, so results are numerically unchanged.
+    attack_fn = ATTACKS.get(attack)
+    return attack_fn(
+        model, x, y_classes_targeted,
+        epsilon=epsilon, targeted=targeted, norm=norm,
+        nb_iter=attack_nb_iter, loss_fn=loss_fn,
+        nb_restarts=nb_restarts, use_apgd=use_apgd,
+    )
 
 
 def _make_results_dict() -> dict:
