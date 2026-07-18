@@ -1,4 +1,5 @@
 import argparse
+import functools
 import os
 from typing import Optional
 
@@ -9,64 +10,50 @@ import torch.nn as nn
 
 from pcld.models.decisioner import Decisioner1DConv, DecisionerFC
 from pcld.models.normalized_model import NormalizedModel
-from pcld.painter.painter_surrogate import (IdentitySurrogate_, PainterSurrogate,
-                                        load_painter_surrogate, load_joint_surrogate)
+from pcld.painter.painter_surrogate import (AllIdentitySurrogate, IdentitySurrogate_,
+                                        PainterSurrogate, load_painter_surrogate,
+                                        load_joint_surrogate)
 from pcld.painter.painter_utils import load_painter, paint_images
 from pcld.attacks.pcld_bpda import BPDAPainter, CLD, PCLD
 from pcld.attacks.attacks import attacker
 from pcld.utils.consts import NUM_OF_HYPHENS, IMAGENET_2012_LABELS, RESOURCES_RESULTS_DIR, \
     RESOURCES_MODELS_DIR, CIFAR10Consts, IMAGENETConsts, ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH
-from pcld.data.datasets import transform_dataset, get_loaders
+from pcld.data.datasets import build_eval_loaders
 from pcld.utils.integrative import save_args_json
 from pcld.models.train_utils import load_model
 
 
-def main_attack_pcld(args: argparse.Namespace, device: str) -> None:
-    """Entry point for the attack_pcld experiment.
+def build_pcld(args: argparse.Namespace, device: str, n_classes: int) -> dict:
+    """Assembles the full PCLD pipeline and its component models.
 
-    Assembles the full Painter–Classifier–Decisioner (PCLD) pipeline and runs
-    an adaptive white-box attack (BPDA) against it. A naïve baseline attack
-    (no painter in the loop) can optionally be run for comparison.
-
-    Model loading order:
-    1. Pretrained painter (actor + renderer).
-    2. Per-step painter surrogates from train_surrogate_painter.
-    3. Pretrained classifier from --classifier_experiment.
-    4. Pretrained decisioner from --decisioner_experiment.
-    5. CLD (no painter) assembled for the naïve baseline.
-    6. PCLD with BPDAPainter for the adaptive attack.
-
-    For each epsilon value, attacks the test split (and train/val if
-    --attack_train is set). Results are saved as a running CSV to
-    resources/results/<experiment_name>/results.csv, updated after each epsilon.
+    Loads the pretrained painter (actor + renderer), the per-step painter
+    surrogates (or the joint / straight-through variants), the
+    NormalizedModel-wrapped classifier, and the decisioner, then builds the
+    CLD naïve baseline and the PCLD adaptive (BPDA) model. This is the exact
+    model-assembly block previously inlined in ``main_attack_pcld``, factored
+    out so other experiments (e.g. the gradient battery) can reuse it.
 
     Args:
-        args: Parsed argument namespace. Reads: dataset, experiment_name,
-            batch_size, output_every, classifier_experiment,
-            decisioner_experiment, attack, attack_direction, attack_nb_iter,
-            run_naive_attack, attack_train, epsilons.
-        device: Target device string resolved by main.py.
+        args: Parsed argument namespace. Reads: output_every,
+            classifier_experiment, decisioner_experiment, dataset_type,
+            joint_surrogate, surrogate_type, painter_max_step, painter_divide.
+        device: Target device string.
+        n_classes: Number of classes for the classifier head (derived from the
+            dataset by the caller).
+
+    Returns:
+        Dict with keys:
+            ``pcld`` – full BPDAPainter → Classifier → Decisioner model,
+            ``cld`` – Classifier → Decisioner naïve-baseline model,
+            ``classifier`` – NormalizedModel-wrapped classifier,
+            ``decisioner`` – the decisioner module,
+            ``painter`` – the BPDAPainter module,
+            ``num_paint_steps`` – paint steps incl. the identity step,
+            ``decisioner_architecture`` – 'conv' or 'fc'.
     """
-    dataset, experiment_name, batch_size, output_every, classifier_experiment, decisioner_experiment, \
-        attack, attack_direction, attack_nb_iter, run_naive_attack, epsilons = \
-        (args.dataset, args.experiment_name, args.batch_size, args.output_every, args.classifier_experiment,
-         args.decisioner_experiment, args.attack, args.attack_direction, args.attack_nb_iter, args.run_naive_attack,
-         args.epsilons)
-
-    # RobustBench convention: DataLoader returns [0, 1] (no normalization).
-    # The classifier normalizes internally via NormalizedModel wrapper.
-    split_transform = transform_dataset(dataset_type=args.dataset_type,
-                                        preprocessing='ToTensorOnly')
-    transform_dict = {split: split_transform for split in args.splits}
-    loaders = get_loaders(dataset, args.splits, transform_dict, batch_size)
-
-    # Derive the class set from the dataset so the pipeline matches the trained
-    # classifier/decisioner class count. The paper's classifier is trained on a
-    # 7-class ImageNet subset, so hardcoding all 1000 ImageNet labels would not
-    # match the shipped checkpoints. This mirrors attack_pcl's behaviour.
-    first_ds = loaders[args.splits[0]][0]
-    classes = sorted(first_ds.class_to_idx.keys())
-    n_classes = len(classes)
+    output_every = args.output_every
+    classifier_experiment = args.classifier_experiment
+    decisioner_experiment = args.decisioner_experiment
 
     actor, renderer = load_painter(ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH, device)
 
@@ -74,7 +61,13 @@ def main_attack_pcld(args: argparse.Namespace, device: str) -> None:
     print(f'Load pre-trained painter-surrogates models...')
     surr_local_folder = os.path.join(RESOURCES_MODELS_DIR, 'train_surrogate_painter')
     joint_path: str | None = getattr(args, 'joint_surrogate', None) or None
-    if joint_path:
+    if getattr(args, 'surrogate_type', 'learned') == 'straight_through':
+        # Straight-through BPDA baseline: the backward pass treats the painter
+        # as the identity, so no surrogate checkpoint files are required.
+        num_paint_steps = len(output_every) + 1  # steps + identity
+        painter_surrogate = AllIdentitySurrogate(num_paint_steps)
+        print('  Using AllIdentitySurrogate (straight-through BPDA baseline)')
+    elif joint_path:
         painter_surrogate = load_joint_surrogate(joint_path, device,
                                                  num_steps=len(output_every))
         num_paint_steps = len(output_every) + 1  # steps + identity
@@ -121,10 +114,83 @@ def main_attack_pcld(args: argparse.Namespace, device: str) -> None:
 
     print(f'Creating PCLD BPDA model...')
     # mean=None: input is [0, 1], NormalizedModel(clf) handles normalization.
-    bpda_painter = BPDAPainter(paint_images, painter_surrogate, output_every, device, actor, renderer,
+    paint_fn = functools.partial(paint_images,
+                                 max_step=getattr(args, 'painter_max_step', 80),
+                                 divide=getattr(args, 'painter_divide', 5))
+    bpda_painter = BPDAPainter(paint_fn, painter_surrogate, output_every, device, actor, renderer,
                                mean=None, std=None).to(device).eval()
     pcld = PCLD(bpda_painter, clf, decisioner, num_paint_steps, decisioner_architecture).to(device).eval()
     print(f'finished creating PCLD BPDA model!')
+
+    return {
+        'pcld': pcld,
+        'cld': cld,
+        'classifier': clf,
+        'decisioner': decisioner,
+        'painter': bpda_painter,
+        'num_paint_steps': num_paint_steps,
+        'decisioner_architecture': decisioner_architecture,
+    }
+
+
+def main_attack_pcld(args: argparse.Namespace, device: str) -> None:
+    """Entry point for the attack_pcld experiment.
+
+    Assembles the full Painter–Classifier–Decisioner (PCLD) pipeline and runs
+    an adaptive white-box attack (BPDA) against it. A naïve baseline attack
+    (no painter in the loop) can optionally be run for comparison.
+
+    Model loading order:
+    1. Pretrained painter (actor + renderer).
+    2. Per-step painter surrogates from train_surrogate_painter.
+    3. Pretrained classifier from --classifier_experiment.
+    4. Pretrained decisioner from --decisioner_experiment.
+    5. CLD (no painter) assembled for the naïve baseline.
+    6. PCLD with BPDAPainter for the adaptive attack.
+
+    For each epsilon value, attacks the test split (and train/val if
+    --attack_train is set). Results are saved as a running CSV to
+    resources/results/<experiment_name>/results.csv, updated after each epsilon.
+
+    Args:
+        args: Parsed argument namespace. Reads: dataset, experiment_name,
+            batch_size, output_every, classifier_experiment,
+            decisioner_experiment, attack, attack_direction, attack_nb_iter,
+            run_naive_attack, attack_train, epsilons.
+        device: Target device string resolved by main.py.
+    """
+    dataset, experiment_name, batch_size, output_every, classifier_experiment, decisioner_experiment, \
+        attack, attack_direction, attack_nb_iter, run_naive_attack, epsilons = \
+        (args.dataset, args.experiment_name, args.batch_size, args.output_every, args.classifier_experiment,
+         args.decisioner_experiment, args.attack, args.attack_direction, args.attack_nb_iter, args.run_naive_attack,
+         args.epsilons)
+
+    # RobustBench convention: DataLoader returns [0, 1] (no normalization).
+    # The classifier normalizes internally via NormalizedModel wrapper.
+    # data_source='robustbench' swaps in the fixed n=1000 test prefix and
+    # writes its fingerprint into the run dir for cross-machine verification.
+    results_local_dir = os.path.join(RESOURCES_RESULTS_DIR, experiment_name)
+    os.makedirs(results_local_dir, exist_ok=True)
+    loaders = build_eval_loaders(args, batch_size, run_dir=results_local_dir)
+    # The robustbench source only produces 'test'; keep the requested order.
+    splits = [split for split in args.splits if split in loaders]
+
+    # Derive the class set from the dataset so the pipeline matches the trained
+    # classifier/decisioner class count. The paper's classifier is trained on a
+    # 7-class ImageNet subset, so hardcoding all 1000 ImageNet labels would not
+    # match the shipped checkpoints. This mirrors attack_pcl's behaviour.
+    first_ds = loaders[splits[0]][0]
+    classes = sorted(first_ds.class_to_idx.keys())
+    n_classes = len(classes)
+
+    built = build_pcld(args, device, n_classes)
+    pcld = built['pcld']
+    cld = built['cld']
+    clf = built['classifier']
+    decisioner = built['decisioner']
+    bpda_painter = built['painter']
+    num_paint_steps = built['num_paint_steps']
+    decisioner_architecture = built['decisioner_architecture']
 
     # Build the PCLD multi-step loss closure BEFORE DataParallel wrapping so
     # the closure captures the unwrapped submodule references directly.
@@ -163,26 +229,27 @@ def main_attack_pcld(args: argparse.Namespace, device: str) -> None:
 
     nb_restarts: int = getattr(args, 'attack_nb_restarts', 1)
     use_apgd: bool = bool(getattr(args, 'use_apgd', 0))
+    eot_samples: int = int(getattr(args, 'eot_samples', 1))
+    aa_version: str = getattr(args, 'aa_version', 'standard')
 
     if torch.cuda.device_count() > 1:
         print("Parallelization: There are ", torch.cuda.device_count(), " GPUs!")
         cld = torch.nn.DataParallel(cld)
         pcld = torch.nn.DataParallel(pcld)
 
-    results_local_dir = os.path.join(RESOURCES_RESULTS_DIR, experiment_name)
-    os.makedirs(results_local_dir, exist_ok=True)
     save_args_json(args, results_local_dir)
     targeted = attack_direction == 'targeted'
     save_parquet = bool(args.save_parquet)
 
     for epsilon in args.epsilons:
         print(f'attack with epsilon {epsilon}/255...')
-        for split in args.splits:
+        for split in splits:
             attacker(experiment_name, dataset, attack, pcld, cld, run_naive_attack,
                      loaders[split][1], split, epsilon, targeted, output_every,
                      classes, attack_nb_iter, device, output_dir=results_local_dir,
                      norm=args.attack_norm, save_parquet=save_parquet,
                      targeted_jumps_allowed=args.targeted_jumps_allowed,
                      loss_fn=loss_fn, nb_restarts=nb_restarts,
-                     use_apgd=use_apgd)
+                     use_apgd=use_apgd, eot_samples=eot_samples,
+                     aa_version=aa_version)
         print(f'finished attack with epsilon {epsilon}/255!')

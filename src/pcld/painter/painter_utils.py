@@ -147,13 +147,17 @@ def prepare_output(canvas: torch.Tensor, to_shape: int, divide: int,
 # --- 2. Main Painting Logic ---
 
 def paint(img: torch.Tensor, output_every: list[int], device: str,
-          actor: ActorResNet, renderer: RendererFCN) -> torch.Tensor:
+          actor: ActorResNet, renderer: RendererFCN,
+          max_step: int | None = None,
+          divide: int | None = None) -> torch.Tensor:
     """Paints a batch of images using the neural stroke-based renderer.
 
     Runs a two-phase painting loop:
-    - Phase 1 (global): MAX_STEP/2 steps on a single WIDTH×WIDTH canvas.
-    - Phase 2 (patched): MAX_STEP/2 steps on a divide×divide grid of patches,
-      which is then merged back into a full-resolution image.
+    - Phase 1 (global): max_step/2 steps on a single WIDTH×WIDTH canvas
+      (each step paints 5 strokes, advancing the stroke counter by 1 each).
+    - Phase 2 (patched, only when divide > 1): max_step/2 steps on a
+      divide×divide grid of patches, advancing the stroke counter by
+      divide² per stroke, then merged back into a full-resolution image.
 
     Canvas snapshots are saved at every stroke count in `output_every`.
 
@@ -167,13 +171,21 @@ def paint(img: torch.Tensor, output_every: list[int], device: str,
         device: Target device string (e.g. 'cuda').
         actor: ActorResNet that predicts stroke parameters.
         renderer: RendererFCN that rasterises individual strokes.
+        max_step: Total painting step budget (split across the two phases
+            when divide > 1). Defaults to PainterConsts.MAX_STEP.
+        divide: Patch-grid side length for Phase 2; 1 disables Phase 2.
+            Defaults to PainterConsts.DIVIDE.
 
     Returns:
         Float tensor of shape (B, Steps, 3, H, W) in [0, 1], where Steps is
-        len(output_every). Returns an empty tensor if no checkpoints are hit.
+        the number of checkpoints in `output_every` actually reached by the
+        stroke counter given max_step/divide (with the defaults, all of
+        them — see expected_fired_checkpoints). Returns an empty tensor if
+        no checkpoints are hit.
     """
-    max_step = PainterConsts.MAX_STEP
-    canvas_cnt = PainterConsts.DIVIDE * PainterConsts.DIVIDE
+    max_step = max_step if max_step is not None else PainterConsts.MAX_STEP
+    divide = divide if divide is not None else PainterConsts.DIVIDE
+    canvas_cnt = divide * divide
     output_every = set(output_every)
 
     if not isinstance(img, torch.Tensor):
@@ -191,10 +203,10 @@ def paint(img: torch.Tensor, output_every: list[int], device: str,
     B = img.shape[0]
     output_width = img.shape[-1]
 
-    patch_img_full = F.interpolate(img, size=(PainterConsts.WIDTH * PainterConsts.DIVIDE,
-                                              PainterConsts.WIDTH * PainterConsts.DIVIDE),
+    patch_img_full = F.interpolate(img, size=(PainterConsts.WIDTH * divide,
+                                              PainterConsts.WIDTH * divide),
                                    mode='bilinear')
-    patch_img = large2small(patch_img_full, PainterConsts.DIVIDE, PainterConsts.WIDTH, canvas_cnt)
+    patch_img = large2small(patch_img_full, divide, PainterConsts.WIDTH, canvas_cnt)
 
     img_low = F.interpolate(img, size=(PainterConsts.WIDTH, PainterConsts.WIDTH), mode='bilinear')
 
@@ -205,7 +217,7 @@ def paint(img: torch.Tensor, output_every: list[int], device: str,
     T = torch.ones([B, 1, PainterConsts.WIDTH, PainterConsts.WIDTH], device=device)
     canvas = torch.zeros([B, 3, PainterConsts.WIDTH, PainterConsts.WIDTH], device=device)
 
-    if PainterConsts.DIVIDE > 1:
+    if divide > 1:
         max_step //= 2
 
     img_idx = 0
@@ -222,16 +234,16 @@ def paint(img: torch.Tensor, output_every: list[int], device: str,
             for j in range(5):
                 img_idx += 1
                 if img_idx in output_every:
-                    out = prepare_output(res[j], output_width, PainterConsts.DIVIDE,
+                    out = prepare_output(res[j], output_width, divide,
                                          PainterConsts.WIDTH, B, False)
                     output_canvases.append(out)
 
         # PHASE 2: Patched (local) pass
-        if PainterConsts.DIVIDE > 1:
-            canvas = F.interpolate(canvas, size=(PainterConsts.WIDTH * PainterConsts.DIVIDE,
-                                                  PainterConsts.WIDTH * PainterConsts.DIVIDE),
+        if divide > 1:
+            canvas = F.interpolate(canvas, size=(PainterConsts.WIDTH * divide,
+                                                  PainterConsts.WIDTH * divide),
                                    mode='bilinear')
-            canvas = large2small(canvas, PainterConsts.DIVIDE, PainterConsts.WIDTH, canvas_cnt)
+            canvas = large2small(canvas, divide, PainterConsts.WIDTH, canvas_cnt)
 
             coord_p = coord.unsqueeze(1).expand(-1, canvas_cnt, -1, -1, -1).reshape(
                 B * canvas_cnt, 2, PainterConsts.WIDTH, PainterConsts.WIDTH)
@@ -247,7 +259,7 @@ def paint(img: torch.Tensor, output_every: list[int], device: str,
                 for j in range(5):
                     img_idx += canvas_cnt
                     if img_idx in output_every:
-                        out = prepare_output(res[j], output_width, PainterConsts.DIVIDE,
+                        out = prepare_output(res[j], output_width, divide,
                                               PainterConsts.WIDTH, B, True)
                         output_canvases.append(out)
 
@@ -260,9 +272,56 @@ def paint(img: torch.Tensor, output_every: list[int], device: str,
     return final_out
 
 
+def expected_fired_checkpoints(output_every: list[int],
+                               max_step: int | None = None,
+                               divide: int | None = None) -> list[int]:
+    """Predicts which stroke-count checkpoints `paint` will actually capture.
+
+    Reimplements only the stroke-counter (img_idx) arithmetic of `paint`,
+    without any rendering: Phase 1 advances the counter by 1 per stroke for
+    max_step (halved when divide > 1) steps of 5 strokes each; Phase 2 (only
+    when divide > 1) then advances it by divide² per stroke for the same
+    number of steps. A checkpoint fires iff the counter lands exactly on it.
+
+    Args:
+        output_every: Stroke-count checkpoints requested from `paint`.
+        max_step: Total painting step budget. Defaults to
+            PainterConsts.MAX_STEP.
+        divide: Patch-grid side length for Phase 2; 1 disables Phase 2.
+            Defaults to PainterConsts.DIVIDE.
+
+    Returns:
+        Sorted subset of `output_every` that the stroke counter hits.
+    """
+    max_step = max_step if max_step is not None else PainterConsts.MAX_STEP
+    divide = divide if divide is not None else PainterConsts.DIVIDE
+    if divide > 1:
+        max_step //= 2
+
+    requested = set(output_every)
+    fired = set()
+
+    img_idx = 0
+    for _ in range(max_step * 5):          # Phase 1: +1 per stroke
+        img_idx += 1
+        if img_idx in requested:
+            fired.add(img_idx)
+
+    if divide > 1:
+        canvas_cnt = divide * divide
+        for _ in range(max_step * 5):      # Phase 2: +divide² per stroke
+            img_idx += canvas_cnt
+            if img_idx in requested:
+                fired.add(img_idx)
+
+    return sorted(fired)
+
+
 def paint_images(x: torch.Tensor, output_every: list[int], device: str,
                  actor: ActorResNet, renderer: RendererFCN,
-                 add_original: bool = True) -> torch.Tensor:
+                 add_original: bool = True,
+                 max_step: int | None = None,
+                 divide: int | None = None) -> torch.Tensor:
     """Paints a batch of images and optionally appends the originals as a step.
 
     Calls `paint` to generate canvas snapshots, then concatenates the original
@@ -277,11 +336,16 @@ def paint_images(x: torch.Tensor, output_every: list[int], device: str,
         renderer: RendererFCN stroke renderer.
         add_original: If True, appends the original image as the final step,
             making the output shape (B, Steps + 1, 3, H, W).
+        max_step: Total painting step budget forwarded to `paint`.
+            Defaults to PainterConsts.MAX_STEP.
+        divide: Patch-grid side length forwarded to `paint`.
+            Defaults to PainterConsts.DIVIDE.
 
     Returns:
         Float tensor of shape (B, Steps[+1], 3, H, W) in [0, 1].
     """
-    canvases = paint(x, output_every, device, actor, renderer).to(device)
+    canvases = paint(x, output_every, device, actor, renderer,
+                     max_step=max_step, divide=divide).to(device)
     if add_original:
         orig = x.unsqueeze(1).to(device)
         canvases = torch.cat([canvases, orig], dim=1)

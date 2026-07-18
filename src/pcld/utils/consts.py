@@ -87,7 +87,32 @@ class CIFAR10Consts:
     }
 
 
+class CIFAR100Consts:
+    SHAPE = 32
+    NUM_CLASSES = 100
+    MEAN = (0.5071, 0.4865, 0.4409)
+    STD = (0.2673, 0.2564, 0.2762)
+    PREPROCESSINGS = {
+        None: transforms.Compose([transforms.ToTensor(),
+                                  transforms.Normalize(mean=MEAN, std=STD)]),
+        'ToTensorOnly': transforms.Compose([transforms.ToTensor()]),
+        'augmented': transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=MEAN, std=STD),
+            transforms.RandomErasing(p=0.5),
+        ]),
+    }
+
+
 class PainterConsts:
-    MAX_STEP = 40
+    # Fallback defaults for the painter's stroke budget. These match the
+    # original (pre-refactor) working values: 80 total steps, halved to 40
+    # per phase when DIVIDE > 1, with a 5x5 patch grid in Phase 2 so the
+    # stroke counter reaches 5200 and every default checkpoint fires.
+    # Override per-run via painter_max_step / painter_divide.
+    MAX_STEP = 80
     WIDTH = 128
-    DIVIDE = 1
+    DIVIDE = 5

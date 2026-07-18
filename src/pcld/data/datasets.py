@@ -7,7 +7,15 @@ import torch
 from PIL import Image
 from torchvision import datasets, transforms
 
-from pcld.utils.consts import RESOURCES_DATASETS_DIR, IMAGENETConsts, CIFAR10Consts
+from pcld.utils.consts import (RESOURCES_DATASETS_DIR, IMAGENETConsts,
+                               CIFAR10Consts, CIFAR100Consts)
+
+# Dataset-type string -> consts class holding MEAN/STD/PREPROCESSINGS.
+_DATASET_CONSTS = {
+    'imagenet': IMAGENETConsts,
+    'cifar10': CIFAR10Consts,
+    'cifar100': CIFAR100Consts,
+}
 
 
 def load_image(path: str, width: int = 300, height: int = 300) -> np.ndarray:
@@ -64,8 +72,8 @@ def transform_dataset(dataset_type: str = 'imagenet',
     ``preprocessing`` key. If ``preprocessing`` is None, returns a simple ToTensor + Normalize pipeline.
 
     Args:
-        dataset_type: Dataset family; ``'imagenet'`` or ``'cifar10'``. Selects
-            the ``PREPROCESSINGS`` dict.
+        dataset_type: Dataset family; ``'imagenet'``, ``'cifar10'`` or
+            ``'cifar100'``. Selects the ``PREPROCESSINGS`` dict.
         preprocessing: Key into the dataset's ``PREPROCESSINGS`` dict (e.g.
             ``'Res256Crop224'``, ``'Res224'``, ``'BicubicRes256Crop224'``).
             ``None`` selects plain ToTensor + Normalize.
@@ -74,10 +82,14 @@ def transform_dataset(dataset_type: str = 'imagenet',
         A composed transform ready to pass to ``ImageFolderWithPaths``.
 
     Raises:
-        ValueError: If ``preprocessing`` is not a recognised key for the
-            chosen dataset type.
+        ValueError: If ``dataset_type`` is unknown, or if ``preprocessing``
+            is not a recognised key for the chosen dataset type.
     """
-    consts = IMAGENETConsts if dataset_type == 'imagenet' else CIFAR10Consts
+    if dataset_type not in _DATASET_CONSTS:
+        raise ValueError(
+            f'Unknown dataset_type {dataset_type!r}. '
+            f'Available options: {list(_DATASET_CONSTS.keys())}')
+    consts = _DATASET_CONSTS[dataset_type]
 
     if preprocessing not in consts.PREPROCESSINGS:
         raise ValueError(
@@ -147,6 +159,77 @@ def get_loaders(dataset: str, splits: Union[list, str],
                                       batch_size=batch_size, num_workers=0)
         loaders[split] = [ds, loader]
         print(f'{split} batches {len(loader)} size {len(ds)}')
+
+    return loaders
+
+
+def build_eval_loaders(args: object, batch_size: int,
+                       run_dir: Optional[str] = None) -> dict:
+    """Builds evaluation loaders from either the folder pipeline or RobustBench.
+
+    Central data entry point for evaluation experiments. Two data sources:
+
+    * ``args.data_source == 'robustbench'``: loads a fixed test-set prefix of
+      ``args.num_samples`` (default 1000) examples via ``robustbench.data``,
+      guaranteeing the exact same images in the same order on every machine.
+      Only the ``'test'`` split is produced. If ``run_dir`` is given, a
+      SHA-256 fingerprint of the loaded tensors is written there as
+      ``rb_prefix_fingerprint.json`` for cross-machine verification.
+    * ``args.data_source == 'folder'`` (default): delegates to ``get_loaders``
+      unchanged. If ``args.num_samples`` is set, each split's dataset is
+      wrapped in a ``torch.utils.data.Subset`` over its first
+      ``num_samples`` indices and the loader is rebuilt unshuffled (with the
+      same batch size / worker settings ``get_loaders`` uses); when
+      ``num_samples`` is None the ``get_loaders`` result is returned as-is.
+
+    Both sources apply the RobustBench convention: images in [0, 1] with no
+    normalization (the classifier normalizes internally via
+    ``NormalizedModel``), matching the ``'ToTensorOnly'`` preprocessing.
+
+    Args:
+        args: Namespace read for ``dataset``, ``dataset_type``, ``splits``,
+            and optionally ``data_source`` and ``num_samples``.
+        batch_size: Number of samples per mini-batch.
+        run_dir: If given (robustbench source only), directory to write the
+            data fingerprint JSON into.
+
+    Returns:
+        Dictionary mapping each split name to [dataset, dataloader], the same
+        structure ``get_loaders`` returns.
+    """
+    if getattr(args, 'data_source', 'folder') == 'robustbench':
+        from pcld.data.robustbench_data import (get_rb_prefix_loader,
+                                                prefix_fingerprint,
+                                                write_fingerprint)
+
+        n = getattr(args, 'num_samples', None) or 1000
+        ds, loader = get_rb_prefix_loader(args.dataset_type, n, batch_size)
+        if run_dir is not None:
+            fp_path = write_fingerprint(prefix_fingerprint(ds.x, ds.y), run_dir)
+            print(f'[data] robustbench prefix fingerprint -> {fp_path}')
+        print(f'test batches {len(loader)} size {len(ds)}')
+        return {'test': [ds, loader]}
+
+    split_transform = transform_dataset(dataset_type=args.dataset_type,
+                                        preprocessing='ToTensorOnly')
+    transform_dict = {split: split_transform for split in args.splits}
+    loaders = get_loaders(args.dataset, args.splits, transform_dict, batch_size)
+
+    n = getattr(args, 'num_samples', None)
+    if n:
+        for split, (ds, _) in loaders.items():
+            sub = torch.utils.data.Subset(ds, range(min(n, len(ds))))
+            # Preserve the class metadata the experiments read off the dataset.
+            sub.classes = ds.classes
+            sub.class_to_idx = ds.class_to_idx
+            # Same loader params as create_ds_loader/get_loaders (num_workers=0,
+            # pin_memory=False) but unshuffled: eval order is deterministic.
+            sub_loader = torch.utils.data.DataLoader(
+                sub, batch_size=batch_size, shuffle=False, num_workers=0,
+                pin_memory=False)
+            loaders[split] = [sub, sub_loader]
+            print(f'{split} capped to {len(sub)} samples '
+                  f'({len(sub_loader)} batches)')
 
     return loaders
 

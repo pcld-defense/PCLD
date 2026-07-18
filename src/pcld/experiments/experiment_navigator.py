@@ -3,9 +3,11 @@ import argparse
 from pcld.experiments.paint_dataset import main_paint_dataset
 from pcld.experiments.train_classifier import main_train_classifier
 from pcld.experiments.eval_classifier import main_eval_classifier
+from pcld.experiments.attack_classifier import main_attack_classifier
 from pcld.experiments.attack_pcl import main_attack_pcl
 from pcld.experiments.train_decisioner import main_train_decisioner
 from pcld.experiments.attack_pcld import main_attack_pcld
+from pcld.experiments.gradient_battery import main_gradient_battery
 from pcld.experiments.train_surrogate_painter import main_train_surrogate_painter
 
 
@@ -21,12 +23,18 @@ def apply_experiment(args: argparse.Namespace, device: str) -> None:
     - 'eval_classifier'           – Evaluate a pretrained classifier on one or more
                                     splits without any training; saves per-split
                                     accuracy metrics to a CSV.
+    - 'attack_classifier'         – Attack a standalone classifier (no painter or
+                                    decisioner) and save per-epsilon robustness
+                                    results; used by the RobustBench sweep.
     - 'attack_pcl'                – Attack the Painter–Classifier (PCL) pipeline
                                     with BPDA and collect per-step confidence
                                     trajectories for decisioner training.
     - 'train_decisioner'          – Train the decisioner on PCL attack outputs.
     - 'attack_pcld'               – Attack the full PCLD pipeline with an adaptive
                                     BPDA attack and evaluate robustness.
+    - 'gradient_battery'          – Run the six-check gradient-validity battery
+                                    (R01 gate) against the PCLD pipeline and
+                                    write JSON/CSV gate artifacts.
     - 'train_surrogate_painter'   – Train per-step PainterSurrogate_ models used
                                     for BPDA gradient approximation during attacks.
                                     One surrogate is trained and saved per step in
@@ -44,10 +52,14 @@ def apply_experiment(args: argparse.Namespace, device: str) -> None:
         main_train_classifier(**params)
     elif args.experiment_type == 'eval_classifier':
         main_eval_classifier(**params)
+    elif args.experiment_type == 'attack_classifier':
+        main_attack_classifier(**params)
     elif args.experiment_type == 'attack_pcl':
         main_attack_pcl(**params)
     elif args.experiment_type == 'attack_pcld':
         main_attack_pcld(**params)
+    elif args.experiment_type == 'gradient_battery':
+        main_gradient_battery(**params)
     elif args.experiment_type == 'train_decisioner':
         main_train_decisioner(**params)
     elif args.experiment_type == 'train_surrogate_painter':

@@ -1,7 +1,7 @@
 import os
 import random
 import time
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -23,6 +23,7 @@ def pgd_with_multi_step_loss(
         nb_restarts: int = 1,
         use_apgd: bool = False,
         norm: str = 'linf',
+        eot_samples: int = 1,
 ) -> torch.Tensor:
     """PGD attack with optional APGD step schedule, random restarts, and custom loss.
 
@@ -56,6 +57,9 @@ def pgd_with_multi_step_loss(
             the highest untargeted loss (or lowest targeted loss) is returned.
         use_apgd: If True, applies the APGD adaptive step-size schedule.
         norm: Perturbation norm; only ``'linf'`` is currently supported.
+        eot_samples: Number of EOT gradient samples averaged per PGD step
+            (Expectation over Transformation). 1 (default) runs the original
+            single forward/backward per step, bit-identically.
 
     Returns:
         Best adversarial example batch of shape ``(B, 3, H, W)`` in ``[0, 1]``.
@@ -86,14 +90,28 @@ def pgd_with_multi_step_loss(
         for step in range(nb_iter):
             x_adv = x_adv.requires_grad_(True)
 
-            if loss_fn is not None:
-                loss = loss_fn(x_adv, y)
-            else:
-                logits = model(x_adv)
-                loss = F.cross_entropy(logits, y, reduction='sum')
+            if eot_samples == 1:
+                if loss_fn is not None:
+                    loss = loss_fn(x_adv, y)
+                else:
+                    logits = model(x_adv)
+                    loss = F.cross_entropy(logits, y, reduction='sum')
 
-            # Maximise loss for untargeted; minimise for targeted.
-            (sign * loss).backward()
+                # Maximise loss for untargeted; minimise for targeted.
+                (sign * loss).backward()
+            else:
+                # EOT (Athalye et al. 2018): average the gradient over several
+                # stochastic forward passes. backward() accumulates into
+                # x_adv.grad, so the sum is divided once before the step. The
+                # last sample's loss feeds the APGD schedule check below.
+                for _ in range(eot_samples):
+                    if loss_fn is not None:
+                        loss = loss_fn(x_adv, y)
+                    else:
+                        logits = model(x_adv)
+                        loss = F.cross_entropy(logits, y, reduction='sum')
+                    (sign * loss).backward()
+                x_adv.grad.data.div_(eot_samples)
 
             with torch.no_grad():
                 grad = x_adv.grad.data
@@ -149,7 +167,9 @@ def attack_batch(model: torch.nn.Module, x: torch.Tensor, attack: str,
                  norm: str = 'linf',
                  loss_fn: Optional[Callable] = None,
                  nb_restarts: int = 1,
-                 use_apgd: bool = False) -> torch.Tensor:
+                 use_apgd: bool = False,
+                 eot_samples: int = 1,
+                 aa_version: str = 'standard') -> torch.Tensor:
     """Generates adversarial examples for a single batch using the chosen attack.
 
     When epsilon is 0 the input is returned unchanged. Supported attacks:
@@ -174,6 +194,10 @@ def attack_batch(model: torch.nn.Module, x: torch.Tensor, attack: str,
             ``attack='pgd'``.
         use_apgd: If True, apply the APGD step-size adaptation schedule for
             PGD. Only used when ``attack='pgd'``.
+        eot_samples: Number of EOT gradient samples averaged per PGD step.
+            Only used when ``attack='pgd'``; 1 disables EOT.
+        aa_version: AutoAttack ensemble version ('standard' or 'rand'). Only
+            used when ``attack='aa'``.
 
     Returns:
         Adversarial example batch of shape (B, 3, H, W) in [0, 1].
@@ -190,6 +214,7 @@ def attack_batch(model: torch.nn.Module, x: torch.Tensor, attack: str,
         epsilon=epsilon, targeted=targeted, norm=norm,
         nb_iter=attack_nb_iter, loss_fn=loss_fn,
         nb_restarts=nb_restarts, use_apgd=use_apgd,
+        eot_samples=eot_samples, aa_version=aa_version,
     )
 
 
@@ -217,7 +242,8 @@ def _append_batch_results(results_dict: dict, probs: list[list[float]],
                            decisions: list[int], classes: list[str],
                            attack_type: str, experiment: str, dataset: str,
                            phase: str, attack: str, targeted: bool,
-                           targeted_jumps_allowed: int, epsilon: int,
+                           targeted_jumps_allowed: int,
+                           epsilon: Union[int, float],
                            attack_nb_iter: int, img_names: list[str],
                            y_classes: list[int], y_classes_targeted: list[int],
                            output_every_expanded: list[int],
@@ -242,7 +268,8 @@ def _append_batch_results(results_dict: dict, probs: list[list[float]],
         attack: Attack algorithm name.
         targeted: Whether the attack was targeted.
         targeted_jumps_allowed: Number of class jumps allowed for targeted attack.
-        epsilon: Perturbation budget as an integer in pixel space.
+        epsilon: Perturbation budget: an integer in pixel space for linf, or
+            an absolute (possibly non-integral) float for l2.
         attack_nb_iter: Number of attack iterations.
         img_names: Image base-name strings for the batch.
         y_classes: True class indices for each image.
@@ -271,7 +298,10 @@ def _append_batch_results(results_dict: dict, probs: list[list[float]],
     results_dict['targeted_jumps_allowed'].extend([int(targeted_jumps_allowed)] * n)
     results_dict['targeted_label'].extend(np.repeat(y_classes_targeted, paint_steps).tolist())
     results_dict['norm'].extend([norm] * n)
-    results_dict['epsilon'].extend([int(epsilon)] * n)
+    # Keep integral epsilons as ints (legacy schema) but preserve non-integral
+    # l2 budgets (e.g. 0.5) as floats.
+    eps_val = int(epsilon) if float(epsilon).is_integer() else float(epsilon)
+    results_dict['epsilon'].extend([eps_val] * n)
     results_dict['nb_iter'].extend([attack_nb_iter] * n)
     results_dict['actual'].extend(np.repeat(y_classes, paint_steps).tolist())
     results_dict['actual_class'].extend(
@@ -287,14 +317,17 @@ def _append_batch_results(results_dict: dict, probs: list[list[float]],
 def attacker(experiment: str, dataset: str, attack: str,
              adaptive_model: torch.nn.Module, naive_model: torch.nn.Module,
              run_naive_attack: int, loader: torch.utils.data.DataLoader,
-             phase: str, epsilon: int, targeted: bool, output_every: list[int],
+             phase: str, epsilon: Union[int, float], targeted: bool,
+             output_every: list[int],
              classes: list[str], attack_nb_iter: int, device: str,
              output_dir: str, output_type: str = 'final_decision',
              norm: str = 'linf', save_parquet: bool = True,
              targeted_jumps_allowed: int = 6,
              loss_fn: Optional[Callable] = None,
              nb_restarts: int = 1,
-             use_apgd: bool = False) -> pd.DataFrame:
+             use_apgd: bool = False,
+             eot_samples: int = 1,
+             aa_version: str = 'standard') -> pd.DataFrame:
     """Runs adaptive and (optionally) naïve attacks over an entire data loader.
 
     For each batch:
@@ -317,8 +350,9 @@ def attacker(experiment: str, dataset: str, attack: str,
             naive_model and records those rows.
         loader: DataLoader returning (x, y, img_paths) tuples.
         phase: Split label written into each row (e.g. 'train', 'val').
-        epsilon: Perturbation budget as an integer in pixel space (divided
-            by 255 internally).
+        epsilon: Perturbation budget. For ``norm='linf'`` an integer in pixel
+            space (divided by 255 internally); for ``norm='l2'`` an absolute
+            budget used as-is (non-integral floats like 0.5 are allowed).
         targeted: If True, a random target class is chosen per image.
         output_every: Stroke-count checkpoints for canvas snapshots; the
             original image is appended as an extra step (t=999999).
@@ -352,12 +386,18 @@ def attacker(experiment: str, dataset: str, attack: str,
         nb_restarts: Number of random restarts for PGD. Default 1 (no restarts).
         use_apgd: If True, apply the APGD step-size adaptation schedule. Only
             effective when ``attack='pgd'``.
+        eot_samples: Number of EOT gradient samples averaged per PGD step.
+            Only effective when ``attack='pgd'``; 1 (default) disables EOT.
+        aa_version: AutoAttack ensemble version ('standard' or 'rand'). Only
+            effective when ``attack='aa'``.
 
     Returns:
         DataFrame with one row per (image × paint step × attack type).
     """
     n_classes = len(classes)
-    epsilon_real = epsilon / 255.0
+    # linf budgets are pixel-space ints (8 -> 8/255); l2 budgets are absolute
+    # radii in image space (RobustBench convention, e.g. 0.5 for CIFAR-10).
+    epsilon_real = float(epsilon) if norm == 'l2' else epsilon / 255.0
     if output_type == 'paints_inference':
         output_every_expanded = output_every + [999999]
     else:
@@ -400,7 +440,9 @@ def attacker(experiment: str, dataset: str, attack: str,
                                        attack_nb_iter, targeted, y_naive_attack,
                                        norm=norm, loss_fn=loss_fn,
                                       nb_restarts=nb_restarts,
-                                      use_apgd=use_apgd)
+                                      use_apgd=use_apgd,
+                                      eot_samples=eot_samples,
+                                      aa_version=aa_version)
             naive_attack_time = time.time() - t0
 
         # --- Adaptive BPDA attack ---
@@ -409,7 +451,9 @@ def attacker(experiment: str, dataset: str, attack: str,
                                       attack_nb_iter, targeted, y_adaptive_attack,
                                       norm=norm, loss_fn=loss_fn,
                                       nb_restarts=nb_restarts,
-                                      use_apgd=use_apgd)
+                                      use_apgd=use_apgd,
+                                      eot_samples=eot_samples,
+                                      aa_version=aa_version)
         adaptive_attack_time = time.time() - t0
 
         # --- Defence inference (always with adaptive_model) ---
@@ -457,7 +501,9 @@ def attacker(experiment: str, dataset: str, attack: str,
     results_df = pd.DataFrame(results_dict)
 
     os.makedirs(output_dir, exist_ok=True)
-    stem = f'{phase}_eps{epsilon}_{norm}_results'
+    # Filenames must stay dot-free for float epsilons: 0.5 -> '0p5'.
+    eps_str = str(epsilon).replace('.', 'p')
+    stem = f'{phase}_eps{eps_str}_{norm}_results'
     if save_parquet:
         parquet_path = os.path.join(output_dir, f'{stem}.parquet')
         results_df.to_parquet(parquet_path, compression='snappy', index=False)

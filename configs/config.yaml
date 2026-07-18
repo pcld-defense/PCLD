@@ -20,6 +20,10 @@ deterministic: false
 # Painter stroke-count checkpoints fed to the decisioner (t steps).
 output_every: [50, 100, 200, 300, 400, 500, 600, 700,
                950, 1200, 1700, 2200, 3200, 4200, 5200]
+# Painter stroke budget: total steps (halved per phase when divide > 1) and
+# the Phase-2 patch-grid side length. (80, 5) makes every checkpoint above fire.
+painter_max_step: 80
+painter_divide: 5
 
 hydra:
   run:

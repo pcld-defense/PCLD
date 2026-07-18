@@ -1,0 +1,31 @@
+# @package _global_
+# Multi-model RobustBench comparison, CIFAR-100 Linf (8/255) threat model.
+# Mirror of rb_sweep on CIFAR-100. `scripts/sweep.py` runs the configured
+# attack against every model in `comparison.models` and emits one comparison
+# table (CSV + LaTeX). Only wrn-70-16-wang2023 is registered as a CIFAR-100
+# backbone today (the zoo selects the cifar100 weights by dataset_type).
+defaults:
+  - override /dataset: cifar100
+  - override /model: robustbench
+  - override /attack: pgd
+
+experiment_type: attack_classifier
+experiment_name: rb_sweep_cifar100_linf
+batch_size: 64
+seed: 42
+data_source: robustbench        # fixed deterministic test-set prefix
+
+dataset:
+  splits: [test]
+
+attack:
+  attack: pgd
+  attack_norm: linf
+  epsilons: [0, 8]              # 0 = clean pass for the 'clean' column
+  attack_nb_iter: 20
+  targeted_jumps_allowed: 1     # single-step targeted jump
+
+comparison:
+  num_samples: 512              # cap eval set for speed; null = full split
+  models:
+    - {name: wrn-70-16-wang2023, threat_model: Linf, dataset: cifar100}

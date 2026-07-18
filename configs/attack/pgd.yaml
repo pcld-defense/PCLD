@@ -3,7 +3,8 @@
 attack: pgd
 attack_direction: untargeted     # untargeted | targeted
 attack_norm: linf                # linf | l2
-epsilons: [8]                    # integer pixel budgets; /255 internally
+epsilons: [8]                    # linf: integer pixel budgets (/255 internally);
+                                 # l2: absolute budgets, floats allowed (e.g. 0.5)
 attack_nb_iter: 10
 attack_nb_restarts: 1
 multi_step_loss_weight: 0.0      # lambda for PCLD intermediate CE (0 = off)

@@ -146,6 +146,10 @@ The example configs live in [`configs/experiment/`](configs/experiment):
 | `paper_pcld_pgd10` | Adaptive targeted PGD-10 vs full PCLD, eps {3,9}/255 |
 | `rb_sweep` | Attack across a list of RobustBench models → comparison table |
 
+**Cluster runs:** the heavy GPU pipeline (determinism R00, the gradient-masking
+gate R01, harness validation R02/R03, and the headline PCLD runs R05–R07) is
+scripted step-by-step in [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
+
 ### Config layout
 ```
 configs/

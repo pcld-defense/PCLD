@@ -14,7 +14,9 @@ from pcld.utils.integrative import save_args_json
 
 def paint_dataset(actor, renderer, loaders: tuple, loader_name: str,
                   device: str, output_every: list[int],
-                  ds_local_dir_new: str) -> None:
+                  ds_local_dir_new: str,
+                  painter_max_step: int = 80,
+                  painter_divide: int = 5) -> None:
     """Paints all images in a single dataset split and saves canvases to disk.
 
     Iterates over each batch, calls paint_images to obtain canvases at the
@@ -37,6 +39,9 @@ def paint_dataset(actor, renderer, loaders: tuple, loader_name: str,
             canvases.
         ds_local_dir_new: Root directory where painted images will be written.
             Each class gets its own subdirectory.
+        painter_max_step: Total painter step budget forwarded to paint_images.
+        painter_divide: Phase-2 patch-grid side length forwarded to
+            paint_images.
     """
     print('-' * NUM_OF_HYPHENS)
     print(f'Paint {loader_name}...')
@@ -67,7 +72,9 @@ def paint_dataset(actor, renderer, loaders: tuple, loader_name: str,
                                 device=device,
                                 actor=actor,
                                 renderer=renderer,
-                                add_original=True)
+                                add_original=True,
+                                max_step=painter_max_step,
+                                divide=painter_divide)
         end_time = time.time()
         painting_avg_time += (end_time - start_time) / len(img_names)
 
@@ -112,4 +119,6 @@ def main_paint_dataset(args: argparse.Namespace, device: str) -> None:
     save_args_json(args, os.path.join(RESOURCES_DATASETS_DIR, experiment_name))
 
     for split in splits:
-        paint_dataset(actor, renderer, loaders[split], split, device, output_every, ds_local_dir_new)
+        paint_dataset(actor, renderer, loaders[split], split, device, output_every, ds_local_dir_new,
+                      painter_max_step=args.painter_max_step,
+                      painter_divide=args.painter_divide)

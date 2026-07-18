@@ -35,6 +35,8 @@ class ClassifierConfig:
         robustbench_name: Model name passed to ``robustbench.utils.load_model``
             (``family='robustbench'`` only).  Must be in
             ``ROBUSTBENCH_STANDARD_MODELS``.
+        threat_model: RobustBench threat model the weights were trained under;
+            ``'Linf'`` or ``'L2'`` (``family='robustbench'`` only).
     """
 
     family: str
@@ -46,6 +48,7 @@ class ClassifierConfig:
     timm_name: Optional[str] = None
     timm_pretrained: bool = False
     robustbench_name: Optional[str] = None
+    threat_model: str = 'Linf'
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +63,8 @@ ROBUSTBENCH_STANDARD_MODELS: list = [
     'Gowal2021Improving_28_10_ddpm_100m',  # WRN-28-10, AT + DDPM data
     'Rebuffi2021Fixing_28_10_cutmix_ddpm', # WRN-28-10, AT + cutmix + DDPM
     'Wang2023Better_WRN-28-10',           # WRN-28-10, AT — Wang et al. 2023
+    'Wang2023Better_WRN-70-16',           # WRN-70-16, AT — Wang et al. 2023
+    'Bartoldson2024Adversarial_WRN-94-16', # WRN-94-16, AT — Bartoldson et al. 2024
     # WRN-34-10 adversarially-trained baselines
     'Cui2020Learnable_34_10',             # WRN-34-10, AT — TRADES variant
     'Chen2021LTD_WRN34_10',              # WRN-34-10, AT — LTD
@@ -67,6 +72,8 @@ ROBUSTBENCH_STANDARD_MODELS: list = [
     'Addepalli2022Efficient_WRN_34_10',   # WRN-34-10, AT — Addepalli et al.
     # ImageNet standard (non-AT) baselines
     'Standard_R50',                       # ResNet-50, non-AT ImageNet — He et al. 2016
+    # ImageNet adversarially-trained baselines
+    'Liu2023Comprehensive_Swin-L',        # Swin-L, AT ImageNet — Liu et al. 2023
 ]
 
 
@@ -139,6 +146,49 @@ CLASSIFIER_REGISTRY: dict = {
         wrn_width=10,
         robustbench_name='Wang2023Better_WRN-28-10',
     ),
+    # Wang et al. 2023 WRN-70-16 — present in both the cifar10 and cifar100
+    # zoos; the zoo is selected by dataset_type at load time.
+    'wrn-70-16-wang2023': ClassifierConfig(
+        family='robustbench',
+        optimizer='sgd',
+        weight_decay_imagenet=1e-4,
+        weight_decay_cifar10=5e-4,
+        wrn_depth=70,
+        wrn_width=16,
+        robustbench_name='Wang2023Better_WRN-70-16',
+        threat_model='Linf',
+    ),
+    'wrn-70-16-wang2023-l2': ClassifierConfig(
+        family='robustbench',
+        optimizer='sgd',
+        weight_decay_imagenet=1e-4,
+        weight_decay_cifar10=5e-4,
+        wrn_depth=70,
+        wrn_width=16,
+        robustbench_name='Wang2023Better_WRN-70-16',
+        threat_model='L2',
+    ),
+    'wrn-28-10-rebuffi2021-l2': ClassifierConfig(
+        family='robustbench',
+        optimizer='sgd',
+        weight_decay_imagenet=1e-4,
+        weight_decay_cifar10=5e-4,
+        wrn_depth=28,
+        wrn_width=10,
+        robustbench_name='Rebuffi2021Fixing_28_10_cutmix_ddpm',
+        threat_model='L2',
+    ),
+    # CIFAR-10 Linf #1 (73.71); zoo id to be verified at first cluster download
+    'wrn-94-16-bartoldson2024': ClassifierConfig(
+        family='robustbench',
+        optimizer='sgd',
+        weight_decay_imagenet=1e-4,
+        weight_decay_cifar10=5e-4,
+        wrn_depth=94,
+        wrn_width=16,
+        robustbench_name='Bartoldson2024Adversarial_WRN-94-16',
+        threat_model='Linf',
+    ),
 
     # --- RobustBench WRN-34-10 adversarially-trained baselines ----------------
     'wrn-34-10-cui2020': ClassifierConfig(
@@ -185,6 +235,17 @@ CLASSIFIER_REGISTRY: dict = {
         weight_decay_imagenet=1e-4,
         weight_decay_cifar10=5e-4,
         robustbench_name='Standard_R50',
+    ),
+
+    # --- RobustBench ImageNet adversarially-trained baseline -------------------
+    # ImageNet Linf leaderboard backbone (Swin-L)
+    'swin-l-liu2023': ClassifierConfig(
+        family='robustbench',
+        optimizer='sgd',
+        weight_decay_imagenet=1e-4,
+        weight_decay_cifar10=5e-4,
+        robustbench_name='Liu2023Comprehensive_Swin-L',
+        threat_model='Linf',
     ),
 
     # --- ResNet (timm) -------------------------------------------------------

@@ -6,6 +6,7 @@ classifier_experiment: train_clf_bp          # resources/models/<name>/model.pth
 decisioner_experiment: train_decisioner_conv_fgsm
 decisioner_architechture: conv               # conv | fc
 joint_surrogate: null            # path to a JointPainterSurrogate .pth, or null
+surrogate_type: learned          # learned | straight_through (BPDA backward)
 # training knobs (train_classifier / train_decisioner)
 max_epochs: 51
 lr: 0.01

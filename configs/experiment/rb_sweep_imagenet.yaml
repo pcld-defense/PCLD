@@ -1,0 +1,34 @@
+# @package _global_
+# Multi-model RobustBench comparison, ImageNet Linf (4/255) threat model.
+# Mirror of rb_sweep on ImageNet. The RobustBench prefix is selected by
+# dataset_type=imagenet with data_source=robustbench, so the folder dataset is
+# only a placeholder (subset_of_imagenet already carries dataset_type=imagenet).
+# `robustbench.data.load_imagenet` needs the ImageNet val set on disk under
+# RESOURCES_DATASETS_DIR/robustbench.
+defaults:
+  - override /dataset: subset_of_imagenet
+  - override /model: robustbench
+  - override /attack: pgd
+
+experiment_type: attack_classifier
+experiment_name: rb_sweep_imagenet_linf
+batch_size: 16
+seed: 42
+data_source: robustbench        # fixed deterministic test-set prefix
+dataset_type: imagenet          # selects the imagenet RobustBench prefix loader
+
+dataset:
+  splits: [test]
+
+attack:
+  attack: pgd
+  attack_norm: linf
+  epsilons: [0, 4]              # 0 = clean pass; 4/255 = ImageNet Linf budget
+  attack_nb_iter: 20
+  targeted_jumps_allowed: 6     # ImageNet has 1000 classes
+
+comparison:
+  num_samples: 512              # cap eval set for speed; null = full split
+  models:
+    - {name: swin-l-liu2023,    threat_model: Linf, dataset: imagenet}
+    - {name: resnet50-standard, threat_model: Linf, dataset: imagenet}

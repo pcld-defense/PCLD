@@ -23,9 +23,14 @@ _DEFAULTS: dict = {
     'dataset_type': None,
     'splits': ['test'],
     'batch_size': 16,
+    # eval subset cap; comparison.num_samples flattens here
+    'num_samples': None,
+    'data_source': 'folder',    # 'folder' | 'robustbench'
     # painter
     'output_every': [50, 100, 200, 300, 400, 500, 600, 700,
                      950, 1200, 1700, 2200, 3200, 4200, 5200],
+    'painter_max_step': 80,
+    'painter_divide': 5,
     # classifier / decisioner
     'preprocessing': None,
     'train_preprocessing': None,
@@ -52,8 +57,14 @@ _DEFAULTS: dict = {
     'multi_step_loss_weight': 0.0,
     'eot_samples': 1,
     'use_apgd': 0,
+    'aa_version': 'standard',
     'resume': 0,
     'joint_surrogate': None,
+    'surrogate_type': 'learned',
+    # gradient-validity battery (R01 gate)
+    'battery_epsilons': [8, 16, 32, 64],
+    'battery_fd_dirs': 8,
+    'battery_fd_delta': 1e-3,
     # reproducibility (new; not present in the legacy CLI)
     'seed': 42,
     'deterministic': False,
@@ -67,17 +78,41 @@ _ALIASES = {'name': 'dataset'}
 # Fields that must end up as a list[int] on the Namespace even if the YAML/CLI
 # provides them as a scalar or a delimited string (legacy CLI accepted
 # "50,100" and "3|9").
-_INT_LIST_FIELDS = {'output_every': ',', 'epsilons': '|'}
+_INT_LIST_FIELDS = {'output_every': ',', 'epsilons': '|',
+                    'battery_epsilons': ','}
+
+# Fields in _INT_LIST_FIELDS that may carry non-integral floats: l2 epsilons
+# are absolute budgets (e.g. 0.5), unlike the integral /255 linf budgets.
+_FLOAT_OK_FIELDS = {'epsilons'}
 
 
-def _coerce_int_list(value: Union[str, int, list], sep: str) -> list:
-    """Normalises a scalar / delimited-string / list value to ``list[int]``."""
+def _coerce_int_list(value: Union[str, int, list], sep: str,
+                     allow_float: bool = False) -> list:
+    """Normalises a scalar / delimited-string / list value to a number list.
+
+    Args:
+        value: Scalar, ``sep``-delimited string, or list/tuple of values.
+        sep: Delimiter for string inputs.
+        allow_float: If True, non-integral values are preserved as floats
+            (integral values still become ints); if False every value is
+            coerced with ``int()`` exactly as the legacy CLI did.
+
+    Returns:
+        List of ints (plus floats for non-integral values when
+        ``allow_float`` is True).
+    """
+    def _num(v: Union[str, int, float]) -> Union[int, float]:
+        if allow_float:
+            f = float(v)
+            return int(f) if f.is_integer() else f
+        return int(v)
+
     if isinstance(value, str):
         parts = value.split(sep) if sep in value else [value]
-        return [int(v) for v in parts]
+        return [_num(v) for v in parts]
     if isinstance(value, (list, tuple)):
-        return [int(v) for v in value]
-    return [int(value)]
+        return [_num(v) for v in value]
+    return [_num(value)]
 
 
 def config_to_namespace(cfg: DictConfig) -> argparse.Namespace:
@@ -119,7 +154,8 @@ def config_to_namespace(cfg: DictConfig) -> argparse.Namespace:
 
     for field, sep in _INT_LIST_FIELDS.items():
         if ns.get(field) is not None:
-            ns[field] = _coerce_int_list(ns[field], sep)
+            ns[field] = _coerce_int_list(ns[field], sep,
+                                         allow_float=field in _FLOAT_OK_FIELDS)
 
     if isinstance(ns.get('splits'), str):
         ns['splits'] = [s.strip() for s in ns['splits'].split(',')]

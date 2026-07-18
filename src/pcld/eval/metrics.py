@@ -76,13 +76,39 @@ def summarize_run(df: pd.DataFrame,
         ``robust_accuracy`` (a ``{epsilon: accuracy}`` map).
     """
     acc = robust_accuracy(df, attacked_model=attacked_model)
-    per_eps = {int(r.epsilon): float(r.accuracy) for r in acc.itertuples()}
+    # Preserve non-integral epsilons (e.g. l2 budgets like 0.5) as floats.
+    per_eps = {int(r.epsilon) if float(r.epsilon).is_integer()
+               else float(r.epsilon): float(r.accuracy)
+               for r in acc.itertuples()}
     return {
         'attacked_model': attacked_model,
         'clean_accuracy': per_eps.get(0),
         'robust_accuracy': per_eps,
         'num_images': int(acc['n'].max()) if len(acc) else 0,
     }
+
+
+def sweep_row(name: str, threat_model: Optional[str],
+              acc: pd.DataFrame) -> dict:
+    """Builds one comparison-table row from a per-epsilon accuracy frame.
+
+    Args:
+        name: Model name (registry key) for the ``model`` column.
+        threat_model: RobustBench threat model label (``'Linf'``/``'L2'``).
+        acc: Accuracy frame from ``robust_accuracy`` with ``epsilon`` and
+            ``accuracy`` columns.
+
+    Returns:
+        Dict like ``{'model': ..., 'threat_model': ..., 'clean': 0.94,
+        'eps_8': 0.61}``. Epsilon 0 maps to the ``clean`` column; other
+        epsilons map to ``eps_<value>`` with non-integral floats preserved
+        (e.g. ``eps_0.5``).
+    """
+    row = {'model': name, 'threat_model': threat_model}
+    for r in acc.itertuples():
+        col = 'clean' if r.epsilon == 0 else f'eps_{r.epsilon:g}'
+        row[col] = float(r.accuracy)
+    return row
 
 
 def comparison_table(rows: list[dict]) -> pd.DataFrame:

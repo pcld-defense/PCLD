@@ -1,11 +1,12 @@
-# AutoAttack (standard ensemble). Reference upper bound on robustness.
+# AutoAttack 'rand' ensemble (EOT-based apgd-ce/apgd-dlr) for randomised
+# defenses. Report the lower of standard vs rand robust accuracy.
 # @package attack
 attack: aa
 attack_direction: untargeted
 attack_norm: linf
 epsilons: [8]
 attack_nb_iter: 100              # AutoAttack manages its own budget
-aa_version: standard             # standard | rand (EOT ensemble)
+aa_version: rand                 # standard | rand (EOT ensemble)
 attack_nb_restarts: 1
 multi_step_loss_weight: 0.0
 eot_samples: 1

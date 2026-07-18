@@ -10,29 +10,7 @@ The codebase is a config-driven experiment framework: an installable package und
 
 ## Setup
 
-### Install dependencies (pinned) + create the venv
-```bash
-make setup-cuda        # Linux/cluster: .venv + CUDA 12.1 torch 2.5.1 + `pip install -e .`
-make setup             # CPU-only variant
-# Windows: powershell -ExecutionPolicy Bypass -File scripts\setup_env.ps1 -Cuda
-```
-All dependency versions are pinned in `pyproject.toml` (torch/torchvision/robustbench included). `requirements.txt` just points at `pip install -e .`.
-
-### Environment variables (`.env` file)
-`python-dotenv` loads path configuration. Copy `.env.example` → `.env` and set:
-```
-RESOURCES_DIR, RESOURCES_DATASETS_DIR, RESOURCES_RESULTS_DIR, RESOURCES_MODELS_DIR,
-ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH   (+ HF_TOKEN for dataset downloads)
-```
-`.env` is gitignored. To run against a different machine, override the `RESOURCES_*` env vars (they win over `.env` because `load_dotenv` does not override existing env vars).
-
-### Download pretrained models
-Download the `models/` folder from [Google Drive](https://drive.google.com/drive/folders/1wydFD78BNzktSY162IYZ5AJMrPE2O43D?usp=drive_link) into `RESOURCES_MODELS_DIR`, or run `python scripts/download_models.py` (gdown).
-
-### GPU check
-```bash
-python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NO GPU')"
-```
+See the `setup-environment` skill for installing dependencies, configuring `.env`, downloading pretrained models, and checking GPU access.
 
 ## Running Experiments
 
@@ -103,14 +81,6 @@ Decorator-based `Registry[T]`. New components register without editing the runne
 ### Experiment Dispatch
 `scripts/run.py` (or `main.py`) → `config_to_namespace` / `parse_args` → `src/pcld/experiments/experiment_navigator.py:apply_experiment()` → one of `src/pcld/experiments/{paint_dataset,train_classifier,eval_classifier,attack_pcl,train_decisioner,attack_pcld,train_surrogate_painter}.py`.
 
-### Key package modules
-- `src/pcld/utils/consts.py` — loads `.env` paths, `IMAGENETConsts`, `CIFAR10Consts`, `PainterConsts` (currently `MAX_STEP=40`, `WIDTH=128`, `DIVIDE=1`)
-- `src/pcld/utils/config.py` — Hydra config → Namespace adapter; `src/pcld/utils/seeding.py` — `seed_everything()`
-- `src/pcld/data/datasets.py` — `ImageFolderWithPaths`, `get_loaders()` (calls `ensure_dataset`), `transform_dataset()`
-- `src/pcld/attacks/attacks.py` — `attack_batch()`, `pgd_with_multi_step_loss()` (APGD schedule, restarts, custom loss), `attacker()` (full loop, saves Parquet/CSV)
-- `src/pcld/models/train_utils.py` — `load_model()` (strips DataParallel `module.` prefix), `trainer_decisioner()`, `process_epoch_clf()`
-- `src/pcld/eval/metrics.py` — `robust_accuracy()`, `summarize_run()`, `emit_table()` (CSV + LaTeX comparison tables)
-
 ### Default Paint Steps
 `output_every` = `50,100,200,300,400,500,600,700,950,1200,1700,2200,3200,4200,5200` (15 steps + original image = 16 total paint steps fed to the decisioner).
 
@@ -125,26 +95,6 @@ PYTHONPATH=src pytest tests/ -q
 
 - Python type hints in signatures for all params and return values. Do **not** repeat types inside docstrings.
 - **Google-style docstrings** on all functions/classes (summary, then `Args:`/`Returns:`/`Raises:`).
-
-```python
-def paint_images(x: torch.Tensor, output_every: list[int], device: str,
-                 actor: nn.Module, renderer: nn.Module,
-                 add_original: bool = True) -> torch.Tensor:
-    """Paint a batch of images and optionally append the originals.
-
-    Args:
-        x: Input image batch.
-        output_every: Stroke-count checkpoints at which to save canvases.
-        device: Target device string.
-        actor: ActorResNet stroke-prediction model.
-        renderer: RendererFCN stroke-rendering model.
-        add_original: If True, append the original image as the last step.
-
-    Returns:
-        Float tensor of shape (B, Steps[+1], 3, H, W) in [0, 1].
-    """
-    ...
-```
 
 ## Important Notes
 

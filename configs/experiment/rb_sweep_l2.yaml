@@ -1,0 +1,31 @@
+# @package _global_
+# Multi-model RobustBench comparison, CIFAR-10 L2 (0.5) threat model.
+# Mirror of rb_sweep but attacks the L2 leaderboard backbones under the L2
+# norm. `scripts/sweep.py` runs the configured attack against every model in
+# `comparison.models` and emits one comparison table (CSV + LaTeX).
+defaults:
+  - override /dataset: cifar10
+  - override /model: robustbench
+  - override /attack: pgd
+
+experiment_type: attack_classifier
+experiment_name: rb_sweep_cifar10_l2
+batch_size: 64
+seed: 42
+data_source: robustbench        # fixed deterministic test-set prefix
+
+dataset:
+  splits: [test]
+
+attack:
+  attack: pgd
+  attack_norm: l2               # L2 budgets are absolute (floats allowed)
+  epsilons: [0, 0.5]            # 0 = clean pass; 0.5 = RobustBench L2 budget
+  attack_nb_iter: 20
+  targeted_jumps_allowed: 1     # CIFAR-10 has 10 classes
+
+comparison:
+  num_samples: 512              # cap eval set for speed; null = full split
+  models:
+    - {name: wrn-28-10-rebuffi2021-l2, threat_model: L2, dataset: cifar10}
+    - {name: wrn-70-16-wang2023-l2,    threat_model: L2, dataset: cifar10}

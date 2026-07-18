@@ -77,6 +77,36 @@ def _build_cifar10(root: str, split: str) -> None:
     print(f'[data] cifar10/{split} saved to {out_dir}')
 
 
+@DATASETS.register('cifar100')
+def _build_cifar100(root: str, split: str) -> None:
+    """Downloads CIFAR-100 from HuggingFace into ImageFolder layout.
+
+    Saves one PNG per image under ``root/cifar100/<split>/<class_name>/``
+    using the fine labels (100 classes). The HuggingFace ``test`` split is
+    mapped from its ``test`` set; ``train`` and ``val`` both derive from the
+    HF ``train`` set (val is not a separate HF split, so callers that need a
+    held-out val should carve it from train).
+
+    Args:
+        root: Datasets root directory.
+        split: ``'train'``, ``'val'``, or ``'test'``.
+    """
+    from datasets import load_dataset
+    from tqdm import tqdm
+
+    hf_split = 'test' if split == 'test' else 'train'
+    ds = load_dataset('uoft-cs/cifar100', split=hf_split, trust_remote_code=True)
+    class_names = ds.features['fine_label'].names
+    out_dir = os.path.join(root, 'cifar100', split)
+
+    for i, example in enumerate(tqdm(ds, desc=f'cifar100/{split}')):
+        class_name = class_names[example['fine_label']]
+        class_path = os.path.join(out_dir, class_name)
+        os.makedirs(class_path, exist_ok=True)
+        example['img'].save(os.path.join(class_path, f'{i}.png'))
+    print(f'[data] cifar100/{split} saved to {out_dir}')
+
+
 def _require_folder(name: str) -> Callable[[str, str], None]:
     """Builds a no-download builder that just checks the folder exists."""
     def _builder(root: str, split: str) -> None:

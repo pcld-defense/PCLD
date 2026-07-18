@@ -1,0 +1,10 @@
+# Full CIFAR-100 (fine labels), auto-downloadable from HuggingFace on first use.
+# @package dataset
+name: cifar100
+dataset_type: cifar100
+splits: [test]
+preprocessing: null
+train_preprocessing: null
+download:
+  source: huggingface           # fetch/cache via the data registry
+  hf_name: uoft-cs/cifar100

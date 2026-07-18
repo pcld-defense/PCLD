@@ -1,4 +1,5 @@
 import argparse
+import functools
 import os
 
 import torch
@@ -6,13 +7,14 @@ import torch
 from pcld.models.classifier import get_net
 from pcld.models.normalized_model import NormalizedModel
 from pcld.attacks.pcld_bpda import BPDAPainter, PCL
-from pcld.painter.painter_surrogate import (IdentitySurrogate_, PainterSurrogate,
-                                        load_painter_surrogate, load_joint_surrogate)
+from pcld.painter.painter_surrogate import (AllIdentitySurrogate, IdentitySurrogate_,
+                                        PainterSurrogate, load_painter_surrogate,
+                                        load_joint_surrogate)
 from pcld.painter.painter_utils import load_painter, paint_images
 from pcld.attacks.attacks import attacker
 from pcld.utils.consts import NUM_OF_HYPHENS, RESOURCES_RESULTS_DIR, RESOURCES_MODELS_DIR, \
     ACTOR_WEIGHTS_PATH, RENDERER_WEIGHTS_PATH, CIFAR10Consts, IMAGENETConsts
-from pcld.data.datasets import transform_dataset, get_loaders
+from pcld.data.datasets import build_eval_loaders
 from pcld.utils.integrative import save_args_json
 
 
@@ -49,11 +51,13 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
     # RobustBench convention: DataLoader returns [0, 1] (no normalization).
     # The classifier normalizes internally via NormalizedModel wrapper.
     # This ensures attack clip bounds (0, 1) match the actual input range.
-    split_transform = transform_dataset(dataset_type=dataset_type,
-                                        preprocessing='ToTensorOnly')
-    transform_dict = {split: split_transform for split in splits}
-
-    loaders = get_loaders(dataset, splits, transform_dict, batch_size)
+    # data_source='robustbench' swaps in the fixed n=1000 test prefix and
+    # writes its fingerprint into the run dir for cross-machine verification.
+    results_local_dir = os.path.join(RESOURCES_RESULTS_DIR, experiment_name)
+    os.makedirs(results_local_dir, exist_ok=True)
+    loaders = build_eval_loaders(args, batch_size, run_dir=results_local_dir)
+    # The robustbench source only produces 'test'; keep the requested order.
+    splits = [split for split in splits if split in loaders]
 
     first_ds = loaders[splits[0]][0]
     classes = sorted(first_ds.class_to_idx.keys())
@@ -65,7 +69,12 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
     print(f'Load pre-trained painter-surrogates models...')
     surr_local_folder = os.path.join(RESOURCES_MODELS_DIR, 'train_surrogate_painter')
     joint_path = getattr(args, 'joint_surrogate', None) or None
-    if joint_path:
+    if getattr(args, 'surrogate_type', 'learned') == 'straight_through':
+        # Straight-through BPDA baseline: the backward pass treats the painter
+        # as the identity, so no surrogate checkpoint files are required.
+        painter_surrogate = AllIdentitySurrogate(len(output_every) + 1)
+        print('  Using AllIdentitySurrogate (straight-through BPDA baseline)')
+    elif joint_path:
         # JointWithIdentity outputs (B, Steps+1, 3, H, W) — same interface
         # as PainterSurrogate with separate models + IdentitySurrogate_.
         painter_surrogate = load_joint_surrogate(joint_path, device,
@@ -96,7 +105,10 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
     print(f'Creating PCL BPDA model...')
     # mean=None: input is already [0, 1], painter works in [0, 1],
     # NormalizedModel(clf) handles normalisation of canvases internally.
-    painter = BPDAPainter(paint_images, painter_surrogate, output_every, device, actor, renderer,
+    paint_fn = functools.partial(paint_images,
+                                 max_step=getattr(args, 'painter_max_step', 80),
+                                 divide=getattr(args, 'painter_divide', 5))
+    painter = BPDAPainter(paint_fn, painter_surrogate, output_every, device, actor, renderer,
                           mean=None, std=None).to(device).eval()
     pcl = PCL(painter, clf).to(device).eval()
 
@@ -104,13 +116,13 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
         print("Parallelization: There are ", torch.cuda.device_count(), " GPUs!")
         pcl = torch.nn.DataParallel(pcl)
 
-    results_local_dir = os.path.join(RESOURCES_RESULTS_DIR, experiment_name)
-    os.makedirs(results_local_dir, exist_ok=True)
     save_args_json(args, results_local_dir)
     attack_direction_bool = attack_direction == 'targeted'
     save_parquet = bool(args.save_parquet)
     nb_restarts: int = getattr(args, 'attack_nb_restarts', 1)
     use_apgd: bool = bool(getattr(args, 'use_apgd', 0))
+    eot_samples: int = int(getattr(args, 'eot_samples', 1))
+    aa_version: str = getattr(args, 'aa_version', 'standard')
     # PCL already outputs (B*Steps, n_classes); CE across all steps is implicit.
     # Multi-step loss weight is not applied here — pass loss_fn=None.
     for epsilon in args.epsilons:
@@ -124,5 +136,6 @@ def main_attack_pcl(args: argparse.Namespace, device: str) -> None:
                      save_parquet=save_parquet,
                      targeted_jumps_allowed=args.targeted_jumps_allowed,
                      loss_fn=None, nb_restarts=nb_restarts,
-                     use_apgd=use_apgd)
+                     use_apgd=use_apgd, eot_samples=eot_samples,
+                     aa_version=aa_version)
         print(f'finished attack with epsilon {epsilon}/255!')

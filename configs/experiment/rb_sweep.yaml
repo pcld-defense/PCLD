@@ -9,17 +9,18 @@ defaults:
   - override /model: robustbench
   - override /attack: pgd
 
-experiment_type: eval_classifier
+experiment_type: attack_classifier
 experiment_name: rb_sweep_cifar10_linf
 batch_size: 64
 seed: 42
+data_source: robustbench        # fixed deterministic test-set prefix
 
 dataset:
   splits: [test]
 
 attack:
   attack: pgd
-  epsilons: [8]
+  epsilons: [0, 8]              # 0 = clean pass for the 'clean' column
   attack_nb_iter: 20
   targeted_jumps_allowed: 1     # CIFAR-10 has 10 classes
 
@@ -29,3 +30,5 @@ comparison:
     - {name: wrn-28-10-standard,  threat_model: Linf, dataset: cifar10}
     - {name: wrn-28-10-carmon2019, threat_model: Linf, dataset: cifar10}
     - {name: wrn-28-10-wang2023,  threat_model: Linf, dataset: cifar10}
+    - {name: wrn-70-16-wang2023,  threat_model: Linf, dataset: cifar10}
+    - {name: wrn-94-16-bartoldson2024, threat_model: Linf, dataset: cifar10}

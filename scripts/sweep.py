@@ -22,7 +22,7 @@ from pcld.utils.config import config_to_namespace
 from pcld.utils.consts import RESOURCES_RESULTS_DIR
 from pcld.utils.seeding import seed_everything
 from pcld.experiments.experiment_navigator import apply_experiment
-from pcld.eval.metrics import robust_accuracy, emit_table
+from pcld.eval.metrics import robust_accuracy, emit_table, sweep_row
 
 
 def _load_results(run_dir: str) -> pd.DataFrame:
@@ -60,7 +60,11 @@ def main(cfg: DictConfig) -> None:
         args.model_type = name
         args.dataset_type = entry.get('dataset', args.dataset_type)
         args.experiment_name = f'{base.experiment_name}/{name}'
-        args.experiment_type = 'eval_classifier'
+        args.experiment_type = 'attack_classifier'
+        # Attack each model under its own RobustBench threat model.
+        args.attack_norm = ('linf' if entry.get('threat_model', 'Linf') == 'Linf'
+                            else 'l2')
+        args.data_source = getattr(base, 'data_source', 'robustbench')
 
         # Re-seed per model so each run starts from the same RNG state.
         seed_everything(base.seed, deterministic=getattr(base, 'deterministic', False))
@@ -70,11 +74,7 @@ def main(cfg: DictConfig) -> None:
         try:
             df = _load_results(run_dir)
             acc = robust_accuracy(df)
-            row = {'model': name, 'threat_model': entry.get('threat_model')}
-            for r in acc.itertuples():
-                col = 'clean' if r.epsilon == 0 else f'eps_{int(r.epsilon)}'
-                row[col] = float(r.accuracy)
-            table_rows.append(row)
+            table_rows.append(sweep_row(name, entry.get('threat_model'), acc))
         except FileNotFoundError as e:
             print(f'  [warn] no attack results for {name}: {e}')
 

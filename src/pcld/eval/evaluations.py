@@ -1,4 +1,3 @@
-import csv
 import glob
 import os
 from typing import Callable, Optional
@@ -9,6 +8,9 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 from skimage.metrics import structural_similarity, peak_signal_noise_ratio
+
+from pcld.eval.gradient_battery import (check_loss_curve, check_monotonicity,
+                                        check_sign)
 
 
 def evaluate_paint_similarity(paints: torch.Tensor, originals: torch.Tensor,
@@ -395,67 +397,25 @@ def diagnose_gradient_masking(
     """
     model.eval()
 
-    def _compute_loss(x_in: torch.Tensor) -> torch.Tensor:
+    def _battery_loss(x_in: torch.Tensor, y_in: torch.Tensor) -> torch.Tensor:
         if loss_fn is not None:
-            return loss_fn(x_in, y)
+            return loss_fn(x_in, y_in)
         logits = model(x_in)
-        return F.cross_entropy(logits, y, reduction='sum')
+        return F.cross_entropy(logits, y_in, reduction='sum')
 
-    # ---- 1. Sign test ----
-    x_leaf = x.detach().requires_grad_(True)
-    loss_clean = _compute_loss(x_leaf)
-    loss_clean.backward()
-    with torch.no_grad():
-        x_fgsm = torch.clamp(x + epsilon * x_leaf.grad.sign(), 0.0, 1.0)
-        loss_after_fgsm = _compute_loss(x_fgsm).item()
-    loss_clean_val = loss_clean.item()
-    sign_test_passed = loss_after_fgsm > loss_clean_val
-
-    print(f'\n[gradient masking] Sign test: clean_loss={loss_clean_val:.4f}, '
-          f'fgsm_loss={loss_after_fgsm:.4f} → '
-          f'{"PASSED" if sign_test_passed else "FAILED (gradient masking suspected)"}')
-
-    # ---- 2. Loss-vs-iteration curve (PGD with fixed step) ----
-    alpha = epsilon / nb_iter
-    x_adv = torch.clamp(x + torch.zeros_like(x).uniform_(-epsilon, epsilon),
-                         0.0, 1.0).detach()
-    loss_curve: list[float] = []
-
-    for step in range(nb_iter):
-        x_adv = x_adv.requires_grad_(True)
-        step_loss = _compute_loss(x_adv)
-        step_loss.backward()
-        with torch.no_grad():
-            x_adv = x_adv.detach() + alpha * x_adv.grad.sign()
-            x_adv = torch.min(torch.max(x_adv, x - epsilon), x + epsilon)
-            x_adv = torch.clamp(x_adv, 0.0, 1.0)
-        loss_curve.append(step_loss.item())
-
-    # ---- 3. Monotonicity check ----
-    mid = nb_iter // 2
-    loss_first_half = float(np.mean(loss_curve[:mid])) if mid > 0 else 0.0
-    loss_second_half = float(np.mean(loss_curve[mid:]))
-    monotonicity_passed = loss_second_half >= loss_first_half
-
-    print(f'[gradient masking] Loss curve: first-half avg={loss_first_half:.4f}, '
-          f'second-half avg={loss_second_half:.4f} → '
-          f'{"PASSED" if monotonicity_passed else "FAILED (gradient masking suspected)"}')
-
-    if output_csv is not None:
-        os.makedirs(os.path.dirname(output_csv) or '.', exist_ok=True)
-        with open(output_csv, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['iteration', 'loss'])
-            for i, l in enumerate(loss_curve):
-                writer.writerow([i, l])
-        print(f'[gradient masking] Saved loss curve to {output_csv}')
+    # Thin wrapper: the three original diagnostics now live as reusable
+    # checks in pcld.eval.gradient_battery (checks 1-3 of the R01 gate).
+    sign_res = check_sign(_battery_loss, x, y, epsilon)
+    curve_res = check_loss_curve(_battery_loss, x, y, epsilon, nb_iter=nb_iter,
+                                 output_csv=output_csv)
+    mono_res = check_monotonicity(curve_res['details']['loss_curve'])
 
     return {
-        'sign_test_passed': sign_test_passed,
-        'loss_clean': loss_clean_val,
-        'loss_after_fgsm': loss_after_fgsm,
-        'loss_curve': loss_curve,
-        'monotonicity_passed': monotonicity_passed,
+        'sign_test_passed': sign_res['passed'],
+        'loss_clean': sign_res['details']['loss_clean'],
+        'loss_after_fgsm': sign_res['details']['loss_after_fgsm'],
+        'loss_curve': curve_res['details']['loss_curve'],
+        'monotonicity_passed': mono_res['passed'],
     }
 
 

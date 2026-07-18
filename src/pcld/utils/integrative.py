@@ -30,6 +30,27 @@ def str_to_int_list(str_var: str, sep: str) -> list[int]:
     return [int(v) for v in str_var.split(sep)] if sep in str_var else [int(str_var)]
 
 
+def str_to_num_list(str_var: str, sep: str) -> list:
+    """Splits a delimited string into numbers, keeping ints as ints.
+
+    Integral values become ints (matching the legacy int-only parsing);
+    non-integral values (e.g. l2 epsilon budgets like '0.5') stay floats.
+
+    Args:
+        str_var: Input string, e.g. '8', '3|9', or '0.5|1.5'.
+        sep: Delimiter character used to split the string.
+
+    Returns:
+        List of ints/floats parsed from the split string. Returns a
+        single-element list when the separator is not present in the string.
+    """
+    def _num(v: str):
+        f = float(v)
+        return int(f) if f.is_integer() else f
+
+    return [_num(v) for v in str_var.split(sep)] if sep in str_var else [_num(str_var)]
+
+
 def str_to_float_list(str_var: str, sep: str) -> list[float]:
     """Splits a delimited string into a list of floats.
 
@@ -51,7 +72,8 @@ def parse_args() -> argparse.Namespace:
     (paint_dataset, train_classifier, attack_pcl, train_decisioner,
     attack_pcld). After parsing, converts `output_every` from a
     comma-separated string to a list of ints and `epsilons` from a
-    pipe-separated string to a list of ints.
+    pipe-separated string to a list of numbers (ints, with non-integral
+    l2 budgets preserved as floats).
 
     Returns:
         Populated Namespace with all experiment configuration fields.
@@ -69,11 +91,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--splits', '-sp', type=str, nargs='+', required=True,
                         help='dataset type (e.g. train val test)')
     parser.add_argument('--batch_size', '-bsz', type=int, required=False, default=16, help='batch size')
+    parser.add_argument('--num_samples', '-nsm', type=int, required=False, default=None,
+                        help='cap evaluation to the first N samples per split (None = full split)')
+    parser.add_argument('--data_source', '-dsc', type=str, required=False, default='folder',
+                        help='folder | robustbench (fixed deterministic test-set prefix)')
 
     ### PAINTER
     parser.add_argument('--output_every', '-oev', type=str, required=False,
                         default="50,100,200,300,400,500,600,700,950,1200,1700,2200,3200,4200,5200",
                         help='the selection of paint steps (t)')
+    parser.add_argument('--painter_max_step', '-pms', type=int, required=False, default=80,
+                        help='painter total step budget (halved per phase when divide > 1)')
+    parser.add_argument('--painter_divide', '-pdv', type=int, required=False, default=5,
+                        help='painter Phase-2 patch-grid side length (1 disables Phase 2)')
 
     ### Classifier
     parser.add_argument('--preprocessing', '-pre', type=str, required=False, default=None,
@@ -105,7 +135,10 @@ def parse_args() -> argparse.Namespace:
                         help='filter training data to epsilon <= this value; set to -1 to disable')
 
     ### Attack
-    parser.add_argument('--epsilons', '-eps', type=str, required=False, default='8', help='attack epsilon')
+    parser.add_argument('--epsilons', '-eps', type=str, required=False, default='8',
+                        help="'|'-separated attack epsilons. For linf: pixel-space "
+                             "ints divided by 255 internally (e.g. '3|9'). For l2: "
+                             "absolute budgets, non-integral floats allowed (e.g. '0.5').")
     parser.add_argument('--attack', '-atk', type=str, required=False, default='pgd',
                         help='attack name (fgsm/pgd/cw/aa)')
     parser.add_argument('--attack_direction', '-atd', type=str, required=False, default='untargeted',
@@ -136,6 +169,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--use_apgd', '-apgd', type=int, required=False, default=0,
                         help='1 = enable APGD adaptive step-size schedule for PGD '
                              '(halves alpha when loss stalls). 0 = fixed step size (default).')
+    parser.add_argument('--aa_version', '-aav', type=str, required=False, default='standard',
+                        help='AutoAttack ensemble version: standard | rand. '
+                             '"rand" uses the EOT-based ensemble for randomised defenses.')
     parser.add_argument('--resume', '-res', type=int, required=False, default=0,
                         help='1 = resume training from an existing checkpoint (used by '
                              'train_surrogate_painter). 0 = start fresh (default).')
@@ -143,11 +179,27 @@ def parse_args() -> argparse.Namespace:
                         help='Path to a JointPainterSurrogate .pth file. When provided, '
                              'the joint model at that path is used/saved instead of separate '
                              'per-step PainterSurrogate_ models. Omit (default) to use separate models.')
+    parser.add_argument('--surrogate_type', '-st', type=str, required=False, default='learned',
+                        help='learned | straight_through. "straight_through" uses '
+                             'AllIdentitySurrogate as the BPDA backward (no surrogate '
+                             'checkpoints needed); "learned" (default) uses trained surrogates.')
+
+    ### Gradient-validity battery (R01 gate)
+    parser.add_argument('--battery_epsilons', '-bep', type=str, required=False, default='8,16,32,64',
+                        help='comma-separated integer epsilon budgets (per 255) for the '
+                             'gradient-battery epsilon-to-zero sweep.')
+    parser.add_argument('--battery_fd_dirs', '-bfd', type=int, required=False, default=8,
+                        help='number of random unit directions probed by the '
+                             'gradient-battery finite-difference check.')
+    parser.add_argument('--battery_fd_delta', '-bfdl', type=float, required=False, default=1e-3,
+                        help='central-difference step size for the gradient-battery '
+                             'finite-difference check.')
 
     parsed = parser.parse_args()
 
     parsed.output_every = str_to_int_list(parsed.output_every, ',')
-    parsed.epsilons = str_to_int_list(parsed.epsilons, '|')
+    parsed.epsilons = str_to_num_list(parsed.epsilons, '|')
+    parsed.battery_epsilons = str_to_int_list(parsed.battery_epsilons, ',')
 
     if isinstance(parsed.splits, str):
         parsed.splits = [s.strip() for s in parsed.splits.split(',')]

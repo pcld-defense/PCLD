@@ -20,6 +20,7 @@ from pcld.models.train_utils import load_model
 _DATASET_NUM_CLASSES: dict = {
     'imagenet': IMAGENETConsts.NUM_CLASSES,
     'cifar10': CIFAR10Consts.NUM_CLASSES,
+    'cifar100': 100,
 }
 
 SUPPORTED_MODELS: list = sorted(CLASSIFIER_REGISTRY)
@@ -42,8 +43,8 @@ def _build_model(cfg: ClassifierConfig, n_classes: int,
             checkpoint will be loaded afterwards). Ignored for
             ``family='robustbench'`` since robustbench always bundles weights.
         dataset_type: Dataset family; used by the ``'robustbench'`` branch to
-            select the correct model zoo (currently only ``'cifar10'``
-            is supported).
+            select the correct model zoo (``'cifar10'``, ``'cifar100'``, or
+            ``'imagenet'``).
 
     Returns:
         Uninitialised (or hub-/robustbench-pretrained) ``nn.Module``.
@@ -71,7 +72,8 @@ def _build_model(cfg: ClassifierConfig, n_classes: int,
                 f"Using adversarially pre-trained weights would compromise "
                 f"PCLD's research validity."
             )
-        _RB_DATASET_MAP = {'cifar10': 'cifar10', 'imagenet': 'imagenet'}
+        _RB_DATASET_MAP = {'cifar10': 'cifar10', 'cifar100': 'cifar100',
+                           'imagenet': 'imagenet'}
         rb_dataset = _RB_DATASET_MAP.get(dataset_type)
         if rb_dataset is None:
             raise ValueError(
@@ -80,7 +82,8 @@ def _build_model(cfg: ClassifierConfig, n_classes: int,
             )
         from robustbench.utils import load_model as rb_load_model  # lazy import
         return rb_load_model(model_name=cfg.robustbench_name,
-                             dataset=rb_dataset, threat_model='Linf')
+                             dataset=rb_dataset,
+                             threat_model=cfg.threat_model)
 
     raise ValueError(
         f"Unknown architecture family {cfg.family!r}. "
@@ -97,7 +100,9 @@ def _build_optimizer(cfg: ClassifierConfig, net: nn.Module,
         cfg: Architecture config from ``CLASSIFIER_REGISTRY``.
         net: The model whose parameters will be optimised.
         lr: Initial learning rate.
-        dataset_type: ``'imagenet'`` or ``'cifar10'``; selects weight decay.
+        dataset_type: ``'imagenet'``, ``'cifar10'``, or ``'cifar100'``;
+            selects weight decay (non-ImageNet datasets use the CIFAR-10
+            value).
 
     Returns:
         Configured ``Optimizer`` instance.
@@ -122,7 +127,8 @@ def get_net(dataset_type: str, device: str, model_type: str = 'wrn-70-16',
     """Builds and returns a classifier for the specified dataset and architecture.
 
     Args:
-        dataset_type: Dataset family; ``'imagenet'`` or ``'cifar10'``.
+        dataset_type: Dataset family; ``'imagenet'``, ``'cifar10'``, or
+            ``'cifar100'``.
         device: Target device string (e.g. ``'cuda'`` or ``'cpu'``).
         model_type: Key in ``CLASSIFIER_REGISTRY`` (e.g. ``'wrn-70-16'``,
             ``'wrn-34-10'``, ``'xcit-m12'``).
@@ -133,7 +139,8 @@ def get_net(dataset_type: str, device: str, model_type: str = 'wrn-70-16',
             head — pass the number of classes in the actual dataset (e.g. 7 for
             a 7-class ImageNet subset). When ``None``, falls back to the full
             dataset size for ``dataset_type`` (1000 for ImageNet, 10 for
-            CIFAR-10). Ignored by ``family='robustbench'`` models, whose head
+            CIFAR-10, 100 for CIFAR-100). Ignored by ``family='robustbench'``
+            models, whose head
             is fixed by their pretrained weights.
 
     Returns:
@@ -172,7 +179,8 @@ def get_net_and_optim(dataset_type: str, device: str, lr: float,
     both WRN and timm families use ``CosineAnnealingLR``.
 
     Args:
-        dataset_type: Dataset family; ``'imagenet'`` or ``'cifar10'``.
+        dataset_type: Dataset family; ``'imagenet'``, ``'cifar10'``, or
+            ``'cifar100'``.
         device: Target device string.
         lr: Initial learning rate.
         model_type: Key in ``CLASSIFIER_REGISTRY``, forwarded to ``get_net``.

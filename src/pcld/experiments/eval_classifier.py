@@ -110,8 +110,18 @@ def main_eval_classifier(args: argparse.Namespace, device: str) -> None:
         args.model_type, args.batch_size,
     )
 
+    preprocessing = args.preprocessing
+    cfg = CLASSIFIER_REGISTRY.get(model_type)
+    if cfg is not None and cfg.family == 'robustbench' and preprocessing is None:
+        # RobustBench models normalize internally; the default transform
+        # (preprocessing=None) includes Normalize, which would double-normalize
+        # the inputs and wreck accuracy. Feed raw [0, 1] tensors instead.
+        preprocessing = 'ToTensorOnly'
+        print("RobustBench model detected: overriding preprocessing to "
+              "'ToTensorOnly' (the model normalizes internally).")
+
     transform = transform_dataset(dataset_type=dataset_type,
-                                  preprocessing=args.preprocessing)
+                                  preprocessing=preprocessing)
     loaders = get_loaders(dataset, splits, {s: transform for s in splits}, batch_size)
 
     first_ds = loaders[splits[0]][0]

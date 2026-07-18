@@ -1,0 +1,29 @@
+# @package _global_
+# R01 gate: six-check gradient-validity battery against the PCLD BPDA
+# pipeline. Must PASS (6/6) before any cluster robustness run is trusted.
+# Writes gradient_battery.json, loss_curve.csv, and eps_sweep.csv to
+# resources/results/<experiment_name>/.
+defaults:
+  - override /dataset: subset_of_imagenet
+  - override /model: pcld_bp
+  - override /attack: pgd
+
+experiment_type: gradient_battery
+experiment_name: gradient_battery
+batch_size: 4
+seed: 42
+num_samples: 32
+
+# Battery knobs: epsilon-to-zero sweep budgets (per 255), finite-difference
+# probe directions, and the central-difference step size.
+battery_epsilons: [8, 16, 32, 64]
+battery_fd_dirs: 8
+battery_fd_delta: 0.001
+
+dataset:
+  splits: [test]
+
+attack:
+  attack: pgd
+  attack_direction: untargeted
+  attack_nb_iter: 10
