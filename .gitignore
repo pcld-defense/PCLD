@@ -1,0 +1,5 @@
+
+# Local Python environment
+.venv/
+__pycache__/
+*.py[cod]
