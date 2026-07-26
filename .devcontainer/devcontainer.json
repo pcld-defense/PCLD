@@ -1,0 +1,31 @@
+{
+  "name": "PCLD Research Environment",
+
+  "build": {
+    "dockerfile": "../docker/Dockerfile",
+    "context": ".."
+  },
+
+  "workspaceFolder": "/workspace/PCLD",
+
+  "mounts": [
+    "source=${localWorkspaceFolder}/../shared-data,target=/workspace/shared-data,type=bind,consistency=cached"
+  ],
+
+  "containerEnv": {
+    "PCLD_DATA_ROOT": "/workspace/shared-data"
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-toolsai.jupyter",
+        "charliermarsh.ruff"
+      ]
+    }
+  },
+
+  "remoteUser": "root"
+}

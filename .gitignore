@@ -1,0 +1,22 @@
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Local environments
+.venv/
+venv/
+.env
+
+# Research data and generated files
+datasets/
+checkpoints/
+outputs/
+wandb/
+runs/

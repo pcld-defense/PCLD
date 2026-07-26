@@ -1,0 +1,8 @@
+project:
+  name: PCLD
+
+paths:
+  data_root: ${PCLD_DATA_ROOT}
+  datasets: ${PCLD_DATA_ROOT}/datasets
+  checkpoints: ${PCLD_DATA_ROOT}/checkpoints
+  outputs: ${PCLD_DATA_ROOT}/outputs
