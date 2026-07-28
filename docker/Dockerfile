@@ -16,7 +16,10 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     libgl1 \
     libglib2.0-0 \
+    openssh-server \
     && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir /var/run/sshd
 
 RUN ln -sf /usr/bin/python3.10 /usr/local/bin/python \
     && ln -sf /usr/bin/pip3 /usr/local/bin/pip
@@ -38,4 +41,6 @@ RUN grep -vE '^(torch|torchvision)==' requirements.txt > /tmp/requirements-proje
 
 COPY . .
 
-CMD ["/bin/bash"]
+EXPOSE 22/tcp
+
+CMD ["/usr/sbin/sshd","-D"]
